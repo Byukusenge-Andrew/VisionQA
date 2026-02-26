@@ -1,6 +1,6 @@
 # main.py
 # Visual QA Sniper — FastAPI backend
-# Drives the action-observation loop with ADK + Gemini + Playwright
+# Uses google-genai (>=1.0) SDK + Playwright for the action-observation loop
 
 from __future__ import annotations
 import asyncio
@@ -14,171 +14,163 @@ load_dotenv()
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse, JSONResponse
-from fastapi.staticfiles import StaticFiles
 import uvicorn
 
-# ── Google GenAI SDK ──────────────────────────────────────────────────────────
-import google.generativeai as genai
+# ── Google GenAI SDK (new unified SDK — google-genai >= 1.0) ─────────────────
+from google import genai
+from google.genai import types as genai_types
 
 # ── Local modules ─────────────────────────────────────────────────────────────
 from vision_engine import BrowserEngine
 from session_manager import SessionManager
 
 # ─────────────────────────────────────────────────────────────────────────────
-# App + Gemini Setup
+# App + Client Setup
 # ─────────────────────────────────────────────────────────────────────────────
 
 app = FastAPI(title="Visual QA Sniper API", version="1.0.0")
 session_mgr = SessionManager()
-
 Path("static").mkdir(exist_ok=True)
 
 API_KEY = os.environ.get("GOOGLE_API_KEY", "")
-genai.configure(api_key=API_KEY)
+client = genai.Client(api_key=API_KEY)
+
+MODEL = "gemini-2.0-flash"
 
 SYSTEM_INSTRUCTION = """
 You are **Visual QA Sniper**, an elite autonomous web UI testing agent.
-You interact with web applications ENTIRELY through visual computer vision.
-You are NOT allowed to inspect HTML, DOM, or source code.
+You interact with web applications ENTIRELY through computer vision — no DOM access.
 
-## Your Core Workflow
-1. OBSERVE: Study the screenshot carefully (viewport is exactly 1280×720 pixels).
-2. PLAN: Decide the single next logical action toward the testing goal.
-3. ACT: Call exactly ONE function and return. Do NOT narrate — just call the function.
-4. ANALYZE: After each new screenshot, evaluate whether your action succeeded.
-5. REPEAT until the goal is complete or you have explored all relevant paths.
+## Workflow
+1. OBSERVE: Carefully study the 1280×720 screenshot.
+2. PLAN: Choose the single best next action toward the goal.
+3. ACT: Call exactly ONE function. Don't narrate — just call it.
+4. REPEAT until goal is complete or fully explored.
 
 ## Rules
-- Never ask the user for permission. Execute immediately.
-- Aim for the precise CENTER of each button, link, or input field.
-- After typing in a form field, press Enter OR click the submit button.
-- Scroll to find content below the fold if needed.
-- If you observe visual defects (overlapping text, broken images, misaligned elements,
-  poor contrast, missing images, cut-off text) call flag_visual_bug IMMEDIATELY.
-- When the test is fully complete, call mark_test_complete.
+- Never ask for permission. Execute immediately.
+- Estimate the precise CENTER pixel of buttons/inputs/links.
+- After typing in a field, press Enter OR click the submit button.
+- Scroll to find content below the fold.
+- Flag ANY visual defect immediately: overlapping text, broken images,
+  misaligned elements, poor contrast, cut-off content.
+- When fully done, call mark_test_complete.
 
 ## Bug severity
-- critical: Blocks core user task
-- high: Major UX degradation
+- critical: Blocks a core user task
+- high: Major UX issue  
 - medium: Noticeable defect
 - low: Cosmetic only
 
-## Coordinate system
-(0,0) = top-left. (1280,720) = bottom-right. Aim for element centers.
+## Coordinates
+(0,0) = top-left corner. (1280,720) = bottom-right corner.
 """
 
+# ── Tool declarations ─────────────────────────────────────────────────────────
+QA_TOOLS = [
+    genai_types.Tool(function_declarations=[
+        genai_types.FunctionDeclaration(
+            name="navigate_to_url",
+            description="Navigate the browser to a URL.",
+            parameters=genai_types.Schema(
+                type="OBJECT",
+                properties={"url": genai_types.Schema(type="STRING", description="Full URL with https://")},
+                required=["url"],
+            ),
+        ),
+        genai_types.FunctionDeclaration(
+            name="click_element",
+            description="Click a UI element at pixel coordinates (center of element).",
+            parameters=genai_types.Schema(
+                type="OBJECT",
+                properties={
+                    "x": genai_types.Schema(type="INTEGER", description="X pixel (0-1280)"),
+                    "y": genai_types.Schema(type="INTEGER", description="Y pixel (0-720)"),
+                },
+                required=["x", "y"],
+            ),
+        ),
+        genai_types.FunctionDeclaration(
+            name="type_into_field",
+            description="Type text into the currently focused input field. Click the field first.",
+            parameters=genai_types.Schema(
+                type="OBJECT",
+                properties={"text": genai_types.Schema(type="STRING", description="Text to type")},
+                required=["text"],
+            ),
+        ),
+        genai_types.FunctionDeclaration(
+            name="press_keyboard_key",
+            description="Press a keyboard key: Enter, Tab, Escape, ArrowDown, etc.",
+            parameters=genai_types.Schema(
+                type="OBJECT",
+                properties={"key": genai_types.Schema(type="STRING", description="Key name")},
+                required=["key"],
+            ),
+        ),
+        genai_types.FunctionDeclaration(
+            name="scroll_page",
+            description="Scroll the page to reveal more content.",
+            parameters=genai_types.Schema(
+                type="OBJECT",
+                properties={
+                    "direction": genai_types.Schema(type="STRING", description="'up' or 'down'"),
+                    "amount": genai_types.Schema(type="INTEGER", description="Pixels, default 300"),
+                },
+                required=["direction"],
+            ),
+        ),
+        genai_types.FunctionDeclaration(
+            name="hover_over_element",
+            description="Hover over coordinates to reveal dropdowns or tooltips.",
+            parameters=genai_types.Schema(
+                type="OBJECT",
+                properties={
+                    "x": genai_types.Schema(type="INTEGER"),
+                    "y": genai_types.Schema(type="INTEGER"),
+                },
+                required=["x", "y"],
+            ),
+        ),
+        genai_types.FunctionDeclaration(
+            name="go_back",
+            description="Navigate back in browser history.",
+            parameters=genai_types.Schema(type="OBJECT", properties={}),
+        ),
+        genai_types.FunctionDeclaration(
+            name="flag_visual_bug",
+            description="Report a visual or UX bug found on the page.",
+            parameters=genai_types.Schema(
+                type="OBJECT",
+                properties={
+                    "description": genai_types.Schema(type="STRING", description="Clear bug description"),
+                    "severity":    genai_types.Schema(type="STRING", description="critical/high/medium/low"),
+                    "x": genai_types.Schema(type="INTEGER", description="X coord of bug, -1 if N/A"),
+                    "y": genai_types.Schema(type="INTEGER", description="Y coord of bug, -1 if N/A"),
+                },
+                required=["description", "severity"],
+            ),
+        ),
+        genai_types.FunctionDeclaration(
+            name="mark_test_complete",
+            description="Call when testing is fully done. Ends the session.",
+            parameters=genai_types.Schema(
+                type="OBJECT",
+                properties={
+                    "summary":    genai_types.Schema(type="STRING", description="Summary of what was tested"),
+                    "bugs_found": genai_types.Schema(type="INTEGER", description="Total bugs flagged"),
+                },
+                required=["summary", "bugs_found"],
+            ),
+        ),
+    ])
+]
 
-def build_model() -> genai.GenerativeModel:
-    """Build a Gemini model with all QA tool definitions."""
-    tools = genai.protos.Tool(
-        function_declarations=[
-            genai.protos.FunctionDeclaration(
-                name="navigate_to_url",
-                description="Navigate the browser to a specific URL.",
-                parameters=genai.protos.Schema(
-                    type=genai.protos.Type.OBJECT,
-                    properties={"url": genai.protos.Schema(type=genai.protos.Type.STRING,
-                                description="Full URL including https://")},
-                    required=["url"],
-                ),
-            ),
-            genai.protos.FunctionDeclaration(
-                name="click_element",
-                description="Click a UI element at the given pixel coordinates. Estimate the center of the target.",
-                parameters=genai.protos.Schema(
-                    type=genai.protos.Type.OBJECT,
-                    properties={
-                        "x": genai.protos.Schema(type=genai.protos.Type.INTEGER, description="Horizontal coordinate (0-1280)"),
-                        "y": genai.protos.Schema(type=genai.protos.Type.INTEGER, description="Vertical coordinate (0-720)"),
-                    },
-                    required=["x", "y"],
-                ),
-            ),
-            genai.protos.FunctionDeclaration(
-                name="type_into_field",
-                description="Type text into the currently focused input field. Click the field first.",
-                parameters=genai.protos.Schema(
-                    type=genai.protos.Type.OBJECT,
-                    properties={"text": genai.protos.Schema(type=genai.protos.Type.STRING, description="Text to type")},
-                    required=["text"],
-                ),
-            ),
-            genai.protos.FunctionDeclaration(
-                name="press_keyboard_key",
-                description="Press a keyboard key such as Enter, Tab, Escape, ArrowDown.",
-                parameters=genai.protos.Schema(
-                    type=genai.protos.Type.OBJECT,
-                    properties={"key": genai.protos.Schema(type=genai.protos.Type.STRING, description="Key name, e.g. 'Enter'")},
-                    required=["key"],
-                ),
-            ),
-            genai.protos.FunctionDeclaration(
-                name="scroll_page",
-                description="Scroll the page to reveal more content.",
-                parameters=genai.protos.Schema(
-                    type=genai.protos.Type.OBJECT,
-                    properties={
-                        "direction": genai.protos.Schema(type=genai.protos.Type.STRING, description="'up' or 'down'"),
-                        "amount": genai.protos.Schema(type=genai.protos.Type.INTEGER, description="Pixels to scroll, default 300"),
-                    },
-                    required=["direction"],
-                ),
-            ),
-            genai.protos.FunctionDeclaration(
-                name="hover_over_element",
-                description="Hover the mouse over a coordinate to reveal dropdowns or tooltips.",
-                parameters=genai.protos.Schema(
-                    type=genai.protos.Type.OBJECT,
-                    properties={
-                        "x": genai.protos.Schema(type=genai.protos.Type.INTEGER),
-                        "y": genai.protos.Schema(type=genai.protos.Type.INTEGER),
-                    },
-                    required=["x", "y"],
-                ),
-            ),
-            genai.protos.FunctionDeclaration(
-                name="go_back",
-                description="Navigate back in browser history.",
-                parameters=genai.protos.Schema(
-                    type=genai.protos.Type.OBJECT,
-                    properties={},
-                ),
-            ),
-            genai.protos.FunctionDeclaration(
-                name="flag_visual_bug",
-                description="Report a visual or UX bug found on the current page.",
-                parameters=genai.protos.Schema(
-                    type=genai.protos.Type.OBJECT,
-                    properties={
-                        "description": genai.protos.Schema(type=genai.protos.Type.STRING, description="Clear description of the bug"),
-                        "severity": genai.protos.Schema(type=genai.protos.Type.STRING, description="critical, high, medium, or low"),
-                        "x": genai.protos.Schema(type=genai.protos.Type.INTEGER, description="X coordinate of bug, -1 if N/A"),
-                        "y": genai.protos.Schema(type=genai.protos.Type.INTEGER, description="Y coordinate of bug, -1 if N/A"),
-                    },
-                    required=["description", "severity"],
-                ),
-            ),
-            genai.protos.FunctionDeclaration(
-                name="mark_test_complete",
-                description="Call this ONLY when testing is fully done. Ends the session.",
-                parameters=genai.protos.Schema(
-                    type=genai.protos.Type.OBJECT,
-                    properties={
-                        "summary": genai.protos.Schema(type=genai.protos.Type.STRING, description="Brief summary of what was tested"),
-                        "bugs_found": genai.protos.Schema(type=genai.protos.Type.INTEGER, description="Total bugs found"),
-                    },
-                    required=["summary", "bugs_found"],
-                ),
-            ),
-        ]
-    )
-
-    return genai.GenerativeModel(
-        model_name="gemini-2.0-flash",
-        system_instruction=SYSTEM_INSTRUCTION,
-        tools=[tools],
-    )
-
+CONFIG = genai_types.GenerateContentConfig(
+    system_instruction=SYSTEM_INSTRUCTION,
+    tools=QA_TOOLS,
+    temperature=0.1,  # Low temperature for deterministic actions
+)
 
 # ─────────────────────────────────────────────────────────────────────────────
 # REST Endpoints
@@ -189,7 +181,7 @@ async def serve_dashboard():
     html_path = Path("static") / "index.html"
     if html_path.exists():
         return HTMLResponse(content=html_path.read_text(encoding="utf-8"))
-    return HTMLResponse("<h1>Visual QA Sniper — backend running.</h1>")
+    return HTMLResponse("<h1>Visual QA Sniper — backend running.</h1><p>Place index.html in /static/</p>")
 
 
 @app.get("/health")
@@ -204,10 +196,10 @@ async def list_sessions():
 
 @app.get("/sessions/{session_id}")
 async def get_session(session_id: str):
-    session = session_mgr.get_session(session_id)
-    if not session:
-        return JSONResponse({"error": "Session not found"}, status_code=404)
-    return JSONResponse(session)
+    sess = session_mgr.get_session(session_id)
+    if not sess:
+        return JSONResponse({"error": "Not found"}, status_code=404)
+    return JSONResponse(sess)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -222,6 +214,8 @@ async def websocket_stream(websocket: WebSocket):
     browser: BrowserEngine | None = None
     stop_requested = False
     session_id: str | None = None
+    # Gemini chat history (multimodal, persisted across turns)
+    chat_history: list = []
 
     async def send(msg: dict):
         try:
@@ -229,8 +223,9 @@ async def websocket_stream(websocket: WebSocket):
         except Exception:
             pass
 
-    async def stream_screenshot(b64: str):
-        await send({"type": "screenshot", "data": b64, "url": browser.current_url if browser else ""})
+    async def push_screenshot(b64: str):
+        await send({"type": "screenshot", "data": b64,
+                    "url": browser.current_url if browser else ""})
 
     try:
         while True:
@@ -246,36 +241,36 @@ async def websocket_stream(websocket: WebSocket):
                 if browser:
                     await browser.close()
                     browser = None
+                chat_history.clear()
                 await send({"type": "stopped"})
                 continue
 
             if msg.get("type") == "start":
                 url  = msg.get("url", "").strip()
-                goal = msg.get("goal", "Explore the UI and report any visual bugs.").strip()
+                goal = msg.get("goal", "Explore the UI and find visual bugs.").strip()
 
                 if not url:
                     await send({"type": "error", "message": "No URL provided."})
                     continue
 
                 stop_requested = False
+                chat_history.clear()
+
                 if browser:
                     await browser.close()
 
                 session_id = session_mgr.new_session(url, goal)
-                await send({"type": "session_start", "session_id": session_id, "url": url, "goal": goal})
+                await send({"type": "session_start", "session_id": session_id,
+                            "url": url, "goal": goal})
 
+                # Launch browser
                 browser = BrowserEngine()
                 await browser.start()
 
-                # Navigate to initial URL
                 await send({"type": "action", "step": 0, "tool": "navigate_to_url",
                             "args": {"url": url}, "description": f"Navigating to {url}"})
                 b64 = await browser.navigate(url)
-                await stream_screenshot(b64)
-
-                # Build Gemini model + chat session
-                model = build_model()
-                chat = model.start_chat(history=[])
+                await push_screenshot(b64)
 
                 step = 1
                 bugs: list[dict] = []
@@ -284,87 +279,131 @@ async def websocket_stream(websocket: WebSocket):
                 while step <= MAX_STEPS and not stop_requested:
                     img_bytes = base64.b64decode(b64)
 
-                    prompt_parts = [
-                        f"Testing goal: {goal}\nCurrent URL: {browser.current_url}\n"
-                        f"Step {step}/{MAX_STEPS}. Analyze the screenshot and call the next action function.",
-                        {"mime_type": "image/jpeg", "data": img_bytes},
-                    ]
+                    # Build prompt text (context-rich per step)
+                    prompt_text = (
+                        f"Testing goal: {goal}\n"
+                        f"Current URL: {browser.current_url}\n"
+                        f"Step {step}/{MAX_STEPS}. "
+                        "Analyze the screenshot carefully and call the next action function."
+                    )
 
-                    try:
-                        response = await asyncio.to_thread(chat.send_message, prompt_parts)
-                    except Exception as e:
-                        await send({"type": "error", "message": f"Gemini API error: {e}"})
+                    # Call Gemini — stateless (screenshot + context each turn)
+                    contents = [
+                        {
+                            "role": "user",
+                            "parts": [
+                                {"text": prompt_text},
+                                {"inline_data": {
+                                    "mime_type": "image/jpeg",
+                                    "data": img_bytes,
+                                }},
+                            ],
+                        }
+                    ]
+                    # Call Gemini — with automatic 429 retry
+                    response = None
+                    for attempt in range(3):
+                        try:
+                            response = await asyncio.to_thread(
+                                client.models.generate_content,
+                                model=MODEL,
+                                contents=contents,
+                                config=CONFIG,
+                            )
+                            break  # success
+                        except Exception as e:
+                            err_str = str(e)
+                            if "429" in err_str or "RESOURCE_EXHAUSTED" in err_str:
+                                # Parse retry delay from error message
+                                import re
+                                match = re.search(r"retry[^\d]*(\d+)", err_str, re.I)
+                                wait_s = int(match.group(1)) + 2 if match else 32
+                                if attempt < 2:
+                                    await send({"type": "action", "step": step,
+                                                "tool": "thinking", "args": {},
+                                                "description": f"⏳ Rate limited — retrying in {wait_s}s…"})
+                                    await asyncio.sleep(wait_s)
+                                else:
+                                    await send({"type": "error",
+                                                "message": f"API quota exhausted. Please enable billing at console.cloud.google.com or wait and retry. ({wait_s}s cooldown)"})
+                                    response = None
+                                    break
+                            else:
+                                await send({"type": "error", "message": f"Gemini API error: {e}"})
+                                response = None
+                                break
+                    if response is None:
                         break
 
-                    # Extract function call from response
+
+                    # Extract tool call
                     tool_name: str | None = None
                     tool_args: dict = {}
 
-                    for candidate in response.candidates:
-                        for part in candidate.content.parts:
-                            if hasattr(part, "function_call") and part.function_call:
-                                fc = part.function_call
-                                tool_name = fc.name
-                                tool_args = dict(fc.args) if fc.args else {}
+                    if response.candidates:
+                        for part in response.candidates[0].content.parts:
+                            if part.function_call:
+                                tool_name = part.function_call.name
+                                tool_args = dict(part.function_call.args or {})
                                 break
-                        if tool_name:
-                            break
 
                     if not tool_name:
-                        # Model returned text — agent is thinking or done
-                        text = response.text if hasattr(response, "text") else ""
-                        if text:
-                            await send({"type": "action", "step": step, "tool": "thinking",
-                                        "args": {}, "description": text[:120]})
+                        # Text-only response — model is thinking
+                        text = ""
+                        try:
+                            text = response.text[:140]
+                        except Exception:
+                            pass
+                        await send({"type": "action", "step": step, "tool": "thinking",
+                                    "args": {}, "description": text or "Analyzing…"})
                         step += 1
                         await asyncio.sleep(0.5)
                         continue
 
-                    # Notify frontend of the action
+                    # Notify frontend
                     await send({
-                        "type": "action", "step": step, "tool": tool_name,
-                        "args": tool_args,
+                        "type": "action", "step": step,
+                        "tool": tool_name, "args": tool_args,
                         "description": _describe(tool_name, tool_args),
                     })
-
                     session_mgr.add_step(session_id, {"step": step, "tool": tool_name, "args": tool_args})
 
-                    # ── Dispatch to BrowserEngine ──────────────────────
+                    # ── Dispatch to browser ────────────────────────────────
                     if tool_name == "navigate_to_url":
                         b64 = await browser.navigate(tool_args.get("url", url))
-                        await stream_screenshot(b64)
+                        await push_screenshot(b64)
 
                     elif tool_name == "click_element":
                         b64 = await browser.click(int(tool_args.get("x", 0)), int(tool_args.get("y", 0)))
-                        await stream_screenshot(b64)
+                        await push_screenshot(b64)
 
                     elif tool_name == "type_into_field":
                         b64 = await browser.type_text(str(tool_args.get("text", "")))
-                        await stream_screenshot(b64)
+                        await push_screenshot(b64)
 
                     elif tool_name == "press_keyboard_key":
                         b64 = await browser.press_key(str(tool_args.get("key", "Enter")))
-                        await stream_screenshot(b64)
+                        await push_screenshot(b64)
 
                     elif tool_name == "scroll_page":
                         b64 = await browser.scroll(
                             str(tool_args.get("direction", "down")),
                             int(tool_args.get("amount", 300)),
                         )
-                        await stream_screenshot(b64)
+                        await push_screenshot(b64)
 
                     elif tool_name == "hover_over_element":
                         b64 = await browser.hover(int(tool_args.get("x", 0)), int(tool_args.get("y", 0)))
-                        await stream_screenshot(b64)
+                        await push_screenshot(b64)
 
                     elif tool_name == "go_back":
                         b64 = await browser.go_back()
-                        await stream_screenshot(b64)
+                        await push_screenshot(b64)
 
                     elif tool_name == "flag_visual_bug":
                         bug = {
                             "description": str(tool_args.get("description", "")),
-                            "severity":    str(tool_args.get("severity", "medium")),
+                            "severity":    str(tool_args.get("severity", "medium")).lower(),
                             "x":           int(tool_args.get("x", -1)),
                             "y":           int(tool_args.get("y", -1)),
                             "step":        step,
@@ -381,7 +420,7 @@ async def websocket_stream(websocket: WebSocket):
                             "step":        step,
                             "screenshot":  bug["screenshot"],
                         })
-                        # Continue loop without advancing step counter
+                        # Don't advance step — re-analyze after logging bug
 
                     elif tool_name == "mark_test_complete":
                         summary    = str(tool_args.get("summary", "Test complete."))
@@ -394,20 +433,25 @@ async def websocket_stream(websocket: WebSocket):
                     step += 1
                     await asyncio.sleep(0.05)
 
-                # Auto-complete if max steps reached
                 if step > MAX_STEPS and not stop_requested:
                     session_mgr.complete_session(
-                        session_id, f"Auto-completed after {MAX_STEPS} steps.", len(bugs))
-                    await send({"type": "complete",
-                                "summary": f"Auto-completed after {MAX_STEPS} steps.",
-                                "bugs_found": len(bugs), "session_id": session_id})
+                        session_id,
+                        f"Auto-completed: reached {MAX_STEPS} steps.",
+                        len(bugs),
+                    )
+                    await send({
+                        "type": "complete",
+                        "summary": f"Auto-completed after {MAX_STEPS} steps.",
+                        "bugs_found": len(bugs),
+                        "session_id": session_id,
+                    })
 
     except WebSocketDisconnect:
         print("[WS] Client disconnected.")
     except asyncio.TimeoutError:
-        print("[WS] Receive timed out.")
+        print("[WS] Timed out.")
     except Exception as e:
-        print(f"[WS] Unhandled error: {e}")
+        print(f"[WS] Error: {e}")
         try:
             await send({"type": "error", "message": str(e)})
         except Exception:
@@ -420,16 +464,16 @@ async def websocket_stream(websocket: WebSocket):
 # ─────────────────────────────────────────────────────────────────────────────
 def _describe(tool: str, args: dict) -> str:
     return {
-        "navigate_to_url":   f"Navigating to {args.get('url','')}",
+        "navigate_to_url":   f"Navigating to {args.get('url', '')}",
         "click_element":     f"Clicking at ({args.get('x')}, {args.get('y')})",
-        "type_into_field":   f'Typing: "{args.get("text","")}"',
-        "press_keyboard_key":f"Pressing {args.get('key','Enter')}",
-        "scroll_page":       f"Scrolling {args.get('direction','down')} {args.get('amount',300)}px",
+        "type_into_field":   f'Typing: "{args.get("text", "")}"',
+        "press_keyboard_key":f"Pressing {args.get('key', 'Enter')}",
+        "scroll_page":       f"Scrolling {args.get('direction', 'down')} {args.get('amount', 300)}px",
         "hover_over_element":f"Hovering at ({args.get('x')}, {args.get('y')})",
         "go_back":           "Going back",
-        "flag_visual_bug":   f"🐛 [{args.get('severity','?').upper()}] {args.get('description','')}",
-        "mark_test_complete":f"✅ {args.get('summary','')}",
-        "thinking":          "Agent analyzing…",
+        "flag_visual_bug":   f"🐛 [{args.get('severity','?').upper()}] {args.get('description', '')}",
+        "mark_test_complete":f"✅ {args.get('summary', '')}",
+        "thinking":          "Analyzing…",
     }.get(tool, tool)
 
 
