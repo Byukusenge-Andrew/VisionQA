@@ -1,0 +1,223 @@
+# Visual QA Sniper — Grand Prize Implementation Plan
+
+## What This Is
+
+**Visual QA Sniper** is a production-grade, autonomous web-testing **platform** that eliminates fragile DOM-based testing forever. It uses a **multi-agent ADK architecture** powered by **Gemini 2.5 Flash** to see web apps visually and test them like a human tester — while you control everything with **your voice** via the **Gemini Live API**.
+
+> **Category Crossover Strategy:** We hit both **UI Navigator ☸️** (primary) and **Live Agents 🗣️** (secondary) simultaneously — maximizing relevance across judging panels and making us a natural candidate for "Best Multimodal Integration" ($5K) *and* the Grand Prize ($25K).
+
+---
+
+## Architecture: Multi-Agent System
+
+```
+USER (Voice + Browser)
+    │
+    ▼
+[Next.js Dashboard] ─── WebSocket ───► [FastAPI Backend on Cloud Run]
+    │                                         │
+    │◄── Screenshot Stream ◄──────────────────┤
+    │◄── Action Log ◄─────────────────────────┤
+    │◄── Bug Reports ◄────────────────────────┤
+    │◄── Voice Response (Audio) ◄─────────────┤
+                                              │
+                              ┌───────────────┴───────────────────┐
+                              │     ADK Orchestrator Agent        │
+                              │  (Root agent, delegates tasks)    │
+                              └────────┬──────────────────────────┘
+                                       │
+                   ┌───────────────────┼────────────────────┐
+                   ▼                   ▼                    ▼
+          [Navigator Agent]   [Bug Hunter Agent]   [Reporter Agent]
+         (Clicks / Types /   (Detects overlaps,   (Generates PDF
+          Scrolls pages)      contrast failures,   test reports,
+                              broken images)       summaries)
+                   │
+         [Playwright BrowserEngine]
+          (Headless Chromium, 1280×720)
+                   │
+         [Firestore Session Store]
+          (Step history, bug log,
+           screenshot references)
+```
+
+---
+
+## Proposed Changes
+
+### Backend – Python
+
+#### [MODIFY] [main.py](file:///d:/LiveEngine/main.py)
+- Two WebSocket endpoints:
+  - `/ws/stream` — Main test loop (screenshot → ADK → action → repeat)
+  - `/ws/voice` — Gemini Live API bidi-stream for voice control
+- Session lifecycle: start/stop/pause/reset
+- Streams: screenshot bytes, action JSON, bug JSON, audio bytes
+
+#### [NEW] [vision_engine.py](file:///d:/LiveEngine/vision_engine.py)
+- `BrowserEngine` async class (Playwright)
+- Methods: `navigate`, `click`, `type_text`, `scroll`, `capture_screenshot`, `record_session`, `close`
+- Session video recording using `page.video` (Playwright built-in)
+
+#### [NEW] [agent_tools.py](file:///d:/LiveEngine/agent_tools.py)
+- `click_element(x, y)` — Click at pixel coordinate
+- `type_text(text)` — Type into focused field
+- `scroll_page(direction, amount)` — Scroll up/down
+- `take_screenshot()` — Force a screenshot capture
+- `flag_visual_bug(description, severity, x, y)` — Log a bug with location
+- `check_accessibility(element_description)` — Flag a11y issues
+- `mark_test_complete(summary, bugs_found)` — End the session
+
+#### [NEW] [agents/orchestrator.py](file:///d:/LiveEngine/agents/orchestrator.py)
+- Root ADK agent that plans the testing strategy
+- Delegates to sub-agents based on testing phase
+
+#### [NEW] [agents/navigator.py](file:///d:/LiveEngine/agents/navigator.py)
+- Specialised in UI navigation: finds and interacts with elements
+
+#### [NEW] [agents/bug_hunter.py](file:///d:/LiveEngine/agents/bug_hunter.py)
+- Specialised in visual QA: looks for layout breaks, contrast failures, broken images, overlapping text
+
+#### [NEW] [agents/reporter.py](file:///d:/LiveEngine/agents/reporter.py)
+- Generates structured test report JSON → HTML → PDF
+
+#### [NEW] [session_manager.py](file:///d:/LiveEngine/session_manager.py)
+- `SessionManager` wrapping Firestore
+- Stores: session metadata, step history, screenshot URLs, bug reports
+- Falls back to in-memory dict for local dev
+
+#### [NEW] [report_generator.py](file:///d:/LiveEngine/report_generator.py)
+- Takes session history from Firestore
+- Generates a full HTML test report (embedded screenshots + bug table)
+- Returns as downloadable HTML file
+
+#### [NEW] [voice_handler.py](file:///d:/LiveEngine/voice_handler.py)
+- Manages the Gemini Live API WebSocket for voice control
+- Receives audio bytes from browser mic → streams to Gemini Live API
+- Streams audio response bytes back to frontend
+- Voice commands: "start testing", "stop", "go back", "flag that bug"
+
+#### [MODIFY] [requirements.txt](file:///d:/LiveEngine/requirements.txt)
+```
+fastapi
+uvicorn[standard]
+google-adk
+google-generativeai
+playwright
+google-cloud-firestore
+google-cloud-storage
+python-dotenv
+weasyprint
+Pillow
+websockets
+```
+
+#### [NEW] [Dockerfile](file:///d:/LiveEngine/Dockerfile)
+- Python 3.12 slim base
+- Install Playwright + Chromium system deps
+- Multi-stage for small final image
+
+---
+
+### Infrastructure
+
+#### [NEW] [terraform/main.tf](file:///d:/LiveEngine/terraform/main.tf)
+- Enable APIs: Cloud Run, Firestore, Artifact Registry, Cloud Storage
+- Firestore database (native, nam5)
+- GCS bucket (session screenshots + video recordings)
+- Cloud Run service (2 vCPU, 4GB RAM — needed for headless Chromium)
+- Artifact Registry Docker repo
+- IAM bindings
+
+#### [NEW] [terraform/variables.tf](file:///d:/LiveEngine/terraform/variables.tf)
+#### [NEW] [terraform/outputs.tf](file:///d:/LiveEngine/terraform/outputs.tf)
+
+#### [NEW] [deploy.sh](file:///d:/LiveEngine/deploy.sh)
+- Build Docker image → push to Artifact Registry → `terraform apply`
+
+---
+
+### Frontend — Next.js 14 Dashboard
+
+Premium dark-mode glassmorphism design. Judges will be wowed on first look.
+
+#### [NEW] frontend/app/page.tsx
+- Hero section with animated gradient
+- URL input + natural language goal input
+- **Voice Toggle** button — red microphone, streams voice to backend
+- Live **screenshot carousel** (updates every agent action)
+- **Action Timeline** — scrolling log of every step with icons
+- **Bug Report Panel** — cards with severity badges, screenshot thumbnails
+- **Download Report** button — triggers HTML report download
+
+#### [NEW] frontend/app/layout.tsx + globals.css
+- Inter font, dark color system, CSS variables
+- Smooth entrance animations
+
+#### [NEW] frontend/components/ScreenFeed.tsx
+- Renders streamed JPEG bytes as a live-updating `<canvas>`
+- Click overlay: user can also click directly on canvas to guide agent
+
+#### [NEW] frontend/components/ActionLog.tsx
+#### [NEW] frontend/components/BugPanel.tsx
+#### [NEW] frontend/components/VoiceControl.tsx
+#### [NEW] frontend/lib/useQASocket.ts
+- WebSocket hook with exponential backoff reconnect
+- Routes messages: `screenshot` → ScreenFeed, `action` → ActionLog, `bug` → BugPanel, `audio` → AudioPlayer
+
+---
+
+### Documentation
+
+#### [NEW] [README.md](file:///d:/LiveEngine/README.md)
+- Project description, judging alignment
+- Local setup: venv, env vars, backend, frontend
+- Terraform deployment: one-command
+- Architecture diagram
+
+---
+
+## What You Need to Provide on Devpost
+
+| Requirement | What It Is | Status |
+|---|---|---|
+| **Text Description** | Project story (already written) | ✅ Done |
+| **Public Code Repo URL** | GitHub link with README | ⏳ Push after build |
+| **GCP Deployment Proof** | Screen recording of Cloud Run console OR link to Terraform/deploy code | ⏳ After Terraform deploy |
+| **Architecture Diagram** | System diagram (will generate) | ⏳ Will create |
+| **Demo Video (<4 min)** | Record agent testing a real site, voice commands working | ⏳ Record after build |
+| **Blog Post (bonus)** | Dev.to / Medium post tagged #GeminiLiveAgentChallenge | Optional but +points |
+| **IaC Proof (bonus)** | Our `deploy.sh` + Terraform scripts in the repo | ✅ Will be in repo |
+| **GDG Profile (bonus)** | Sign up at gdg.community.dev | Sign up manually |
+
+---
+
+## Verification Plan
+
+```bash
+# 1. Start backend locally
+cd d:\LiveEngine
+.venv\Scripts\activate
+uvicorn main:app --reload --port 8080
+
+# 2. Test WebSocket loop
+# Open frontend http://localhost:3000
+# Enter URL: https://example.com
+# Goal: "Click the More information link"
+# Watch live screenshots update + action log fill
+
+# 3. Test voice control
+# Hit microphone button → say "go back and try the other link"
+# Agent should respond and navigate accordingly
+
+# 4. Test report download
+# After session → click Download Report → HTML report with all screenshots + bugs
+
+# 5. Docker build
+docker build -t visual-qa-sniper .
+docker run -p 8080:8080 --env-file .env visual-qa-sniper
+
+# 6. Terraform deploy
+cd terraform && terraform init && terraform apply
+# Then push Docker image and update Cloud Run
+```

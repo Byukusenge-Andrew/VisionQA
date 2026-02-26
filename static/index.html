@@ -1,0 +1,677 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Visual QA Sniper — Autonomous UI Testing</title>
+  <meta name="description" content="Autonomous web UI testing agent powered by Gemini Vision. No DOM selectors — pure computer vision." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <style>
+    /* ── Design Tokens ───────────────────────────────────────────────── */
+    :root {
+      --bg:         #080b14;
+      --bg2:        #0d111f;
+      --surface:    rgba(255,255,255,0.04);
+      --surface-h:  rgba(255,255,255,0.08);
+      --border:     rgba(255,255,255,0.08);
+      --border-h:   rgba(255,255,255,0.16);
+      --accent:     #6c63ff;
+      --accent2:    #4facfe;
+      --green:      #22c55e;
+      --red:        #ef4444;
+      --orange:     #f97316;
+      --yellow:     #eab308;
+      --text:       #e2e8f0;
+      --muted:      #64748b;
+      --radius:     12px;
+      --radius-lg:  20px;
+      --glow:       0 0 40px rgba(108,99,255,0.15);
+    }
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html { scroll-behavior: smooth; }
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: 'Inter', sans-serif;
+      min-height: 100vh;
+      overflow-x: hidden;
+    }
+
+    /* ── Animated gradient background ───────────────────────────────── */
+    body::before {
+      content: '';
+      position: fixed; inset: 0; z-index: -1;
+      background:
+        radial-gradient(ellipse 80% 50% at 20% 0%, rgba(108,99,255,0.12) 0%, transparent 60%),
+        radial-gradient(ellipse 60% 40% at 80% 100%, rgba(79,172,254,0.08) 0%, transparent 60%);
+      pointer-events: none;
+    }
+
+    /* ── Layout ──────────────────────────────────────────────────────── */
+    .header {
+      display: flex; align-items: center; gap: 14px;
+      padding: 20px 32px;
+      border-bottom: 1px solid var(--border);
+      backdrop-filter: blur(20px);
+      position: sticky; top: 0; z-index: 100;
+      background: rgba(8,11,20,0.85);
+    }
+    .logo {
+      width: 36px; height: 36px;
+      background: linear-gradient(135deg, var(--accent), var(--accent2));
+      border-radius: 8px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 18px;
+    }
+    .header-title { font-weight: 700; font-size: 17px; letter-spacing: -0.3px; }
+    .header-sub { color: var(--muted); font-size: 12px; margin-top: 2px; }
+    .badge {
+      margin-left: auto;
+      padding: 4px 12px; border-radius: 100px;
+      font-size: 11px; font-weight: 600; letter-spacing: 0.5px;
+      text-transform: uppercase;
+    }
+    .badge-idle  { background: var(--surface); color: var(--muted); border: 1px solid var(--border); }
+    .badge-run   { background: rgba(108,99,255,0.2); color: var(--accent); border: 1px solid rgba(108,99,255,0.4); animation: pulse 2s infinite; }
+    .badge-done  { background: rgba(34,197,94,0.15); color: var(--green); border: 1px solid rgba(34,197,94,0.4); }
+    .badge-err   { background: rgba(239,68,68,0.15); color: var(--red); border: 1px solid rgba(239,68,68,0.3); }
+    @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.6} }
+
+    main { display: grid; grid-template-columns: 460px 1fr; gap: 0; height: calc(100vh - 73px); }
+
+    /* ── Left Panel ──────────────────────────────────────────────────── */
+    .panel-left {
+      border-right: 1px solid var(--border);
+      display: flex; flex-direction: column;
+      overflow: hidden;
+    }
+    .panel-section {
+      padding: 20px 24px;
+      border-bottom: 1px solid var(--border);
+    }
+    .section-label {
+      font-size: 10px; font-weight: 600; letter-spacing: 1.5px;
+      text-transform: uppercase; color: var(--muted); margin-bottom: 14px;
+    }
+
+    /* ── Form ────────────────────────────────────────────────────────── */
+    .field { margin-bottom: 14px; }
+    .field label { display: block; font-size: 12px; font-weight: 500; color: var(--muted); margin-bottom: 6px; }
+    .field input, .field textarea {
+      width: 100%;
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: var(--radius); color: var(--text);
+      font-family: inherit; font-size: 14px;
+      padding: 10px 14px; outline: none;
+      transition: border-color 0.2s, box-shadow 0.2s;
+    }
+    .field input:focus, .field textarea:focus {
+      border-color: var(--accent); box-shadow: 0 0 0 3px rgba(108,99,255,0.15);
+    }
+    .field input::placeholder, .field textarea::placeholder { color: var(--muted); }
+    .field textarea { resize: none; height: 72px; font-size: 13px; line-height: 1.5; }
+
+    .btn-row { display: flex; gap: 10px; }
+    .btn {
+      flex: 1; padding: 11px 18px; border-radius: var(--radius);
+      font-family: inherit; font-size: 14px; font-weight: 600;
+      cursor: pointer; border: none; transition: all 0.2s;
+      display: flex; align-items: center; justify-content: center; gap: 8px;
+    }
+    .btn-primary {
+      background: linear-gradient(135deg, var(--accent), #8b5cf6);
+      color: #fff;
+      box-shadow: 0 4px 20px rgba(108,99,255,0.3);
+    }
+    .btn-primary:hover { transform: translateY(-1px); box-shadow: 0 6px 28px rgba(108,99,255,0.45); }
+    .btn-primary:active { transform: translateY(0); }
+    .btn-primary:disabled { opacity: 0.45; cursor: not-allowed; transform: none; }
+    .btn-stop {
+      background: rgba(239,68,68,0.15); color: var(--red);
+      border: 1px solid rgba(239,68,68,0.35);
+    }
+    .btn-stop:hover { background: rgba(239,68,68,0.25); }
+    .btn-stop:disabled { opacity: 0.35; cursor: not-allowed; }
+
+    /* ── Stats strip ─────────────────────────────────────────────────── */
+    .stats { display: grid; grid-template-columns: repeat(3,1fr); gap: 10px; }
+    .stat-card {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 12px 14px; text-align: center;
+    }
+    .stat-val { font-size: 22px; font-weight: 800; letter-spacing: -1px; }
+    .stat-lbl { font-size: 10px; color: var(--muted); margin-top: 2px; font-weight: 500; text-transform: uppercase; letter-spacing: 0.5px; }
+    .val-steps { color: var(--accent2); }
+    .val-bugs  { color: var(--red); }
+    .val-time  { color: var(--green); }
+
+    /* ── Action Log ──────────────────────────────────────────────────── */
+    .log-wrap {
+      flex: 1; overflow-y: auto;
+      padding: 16px 24px;
+      display: flex; flex-direction: column; gap: 6px;
+    }
+    .log-wrap::-webkit-scrollbar { width: 4px; }
+    .log-wrap::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+    .log-item {
+      display: flex; align-items: flex-start; gap: 10px;
+      padding: 8px 12px; border-radius: 8px;
+      animation: fadeIn 0.25s ease;
+      font-size: 12px; line-height: 1.5;
+    }
+    @keyframes fadeIn { from{opacity:0;transform:translateY(4px)} to{opacity:1;transform:translateY(0)} }
+    .log-item-normal { background: var(--surface); }
+    .log-item-bug    { background: rgba(239,68,68,0.1); border: 1px solid rgba(239,68,68,0.25); }
+    .log-item-done   { background: rgba(34,197,94,0.1); border: 1px solid rgba(34,197,94,0.25); }
+    .log-icon { font-size: 14px; margin-top: 1px; flex-shrink: 0; }
+    .log-step { color: var(--muted); font-family: 'JetBrains Mono', monospace; font-size: 10px; flex-shrink: 0; margin-top: 2px; }
+    .log-text { color: var(--text); }
+    .log-empty { color: var(--muted); font-size: 13px; text-align: center; margin: auto; padding: 40px 0; }
+
+    /* ── Right Panel ─────────────────────────────────────────────────── */
+    .panel-right {
+      display: flex; flex-direction: column; overflow: hidden;
+    }
+
+    /* ── Screen Feed ─────────────────────────────────────────────────── */
+    .screen-wrap {
+      flex: 1; display: flex; align-items: center; justify-content: center;
+      background: var(--bg2); position: relative; overflow: hidden;
+      padding: 24px;
+    }
+    .screen-frame {
+      position: relative; width: 100%; max-width: 960px;
+      border-radius: var(--radius-lg); overflow: hidden;
+      border: 1px solid var(--border);
+      box-shadow: 0 20px 80px rgba(0,0,0,0.6), var(--glow);
+      transition: box-shadow 0.4s;
+    }
+    .screen-frame.active { box-shadow: 0 20px 80px rgba(0,0,0,0.7), 0 0 60px rgba(108,99,255,0.2); }
+    .screen-chrome {
+      background: rgba(20,24,36,0.98); padding: 10px 16px;
+      display: flex; align-items: center; gap: 10px;
+      border-bottom: 1px solid var(--border);
+    }
+    .chrome-dots { display: flex; gap: 6px; }
+    .chrome-dot { width: 10px; height: 10px; border-radius: 50%; }
+    .dot-r { background: #ff5f57; }
+    .dot-y { background: #febc2e; }
+    .dot-g { background: #28c840; }
+    .chrome-url {
+      flex: 1; background: rgba(255,255,255,0.06); border-radius: 6px;
+      padding: 4px 12px; font-size: 12px; color: var(--muted);
+      font-family: 'JetBrains Mono', monospace; overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
+    }
+    .screen-img {
+      display: block; width: 100%; aspect-ratio: 16/9;
+      object-fit: cover; object-position: top;
+    }
+    .screen-placeholder {
+      aspect-ratio: 16/9; display: flex; flex-direction: column;
+      align-items: center; justify-content: center; gap: 12px;
+      background: var(--bg2); color: var(--muted);
+    }
+    .screen-placeholder .icon { font-size: 48px; opacity: 0.3; }
+    .screen-placeholder p { font-size: 14px; }
+
+    /* ── Loading Scan Line ───────────────────────────────────────────── */
+    .scan-line {
+      position: absolute; left: 0; right: 0; height: 2px;
+      background: linear-gradient(90deg, transparent, var(--accent), transparent);
+      animation: scan 1.8s linear infinite;
+      opacity: 0; pointer-events: none;
+    }
+    .scan-line.visible { opacity: 1; }
+    @keyframes scan { from{top:0%} to{top:100%} }
+
+    /* ── Bug Panel ───────────────────────────────────────────────────── */
+    .bugs-panel {
+      height: 260px; border-top: 1px solid var(--border);
+      display: flex; flex-direction: column;
+    }
+    .bugs-header {
+      padding: 12px 20px; display: flex; align-items: center; gap: 8px;
+      border-bottom: 1px solid var(--border);
+    }
+    .bugs-header h3 { font-size: 13px; font-weight: 600; }
+    .bug-count {
+      background: rgba(239,68,68,0.2); color: var(--red);
+      border-radius: 100px; padding: 2px 8px; font-size: 11px; font-weight: 700;
+    }
+    .bugs-list {
+      flex: 1; overflow-y: auto; display: flex;
+      gap: 10px; padding: 12px 20px;
+    }
+    .bugs-list::-webkit-scrollbar { height: 4px; }
+    .bugs-list::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+    .bug-card {
+      flex-shrink: 0; width: 260px;
+      background: rgba(239,68,68,0.07); border: 1px solid rgba(239,68,68,0.25);
+      border-radius: var(--radius); padding: 12px 14px;
+      animation: fadeIn 0.3s ease;
+    }
+    .bug-sev {
+      display: inline-block; padding: 2px 8px; border-radius: 100px;
+      font-size: 10px; font-weight: 700; text-transform: uppercase; margin-bottom: 8px;
+    }
+    .sev-critical { background: rgba(239,68,68,0.3); color: #ff6b6b; }
+    .sev-high     { background: rgba(249,115,22,0.3); color: var(--orange); }
+    .sev-medium   { background: rgba(234,179,8,0.3); color: var(--yellow); }
+    .sev-low      { background: rgba(100,116,139,0.3); color: var(--muted); }
+    .bug-desc { font-size: 12px; color: var(--text); line-height: 1.5; }
+    .bug-step { font-size: 10px; color: var(--muted); margin-top: 6px; font-family: 'JetBrains Mono', monospace; }
+    .bug-thumb {
+      margin-top: 8px; width: 100%; height: 80px;
+      border-radius: 6px; object-fit: cover; object-position: top;
+      border: 1px solid var(--border); cursor: pointer;
+      transition: opacity 0.2s;
+    }
+    .bug-thumb:hover { opacity: 0.85; }
+    .bugs-empty {
+      flex: 1; display: flex; align-items: center; justify-content: center;
+      color: var(--muted); font-size: 13px; gap: 8px;
+    }
+
+    /* ── Summary banner ──────────────────────────────────────────────── */
+    .summary-banner {
+      margin: 0 20px 12px;
+      padding: 12px 16px; border-radius: var(--radius);
+      background: rgba(34,197,94,0.1); border: 1px solid rgba(34,197,94,0.3);
+      font-size: 13px; color: var(--green); display: none; animation: fadeIn 0.4s ease;
+    }
+    .summary-banner.visible { display: block; }
+
+    /* ── Lightbox ────────────────────────────────────────────────────── */
+    .lightbox {
+      position: fixed; inset: 0; z-index: 1000;
+      background: rgba(0,0,0,0.85); display: none;
+      align-items: center; justify-content: center; cursor: pointer;
+    }
+    .lightbox.open { display: flex; }
+    .lightbox img { max-width: 90vw; max-height: 90vh; border-radius: 8px; }
+
+    /* ── Connection indicator ────────────────────────────────────────── */
+    .conn-dot {
+      width: 8px; height: 8px; border-radius: 50%;
+      margin-left: 8px;
+      background: var(--muted); transition: background 0.3s;
+    }
+    .conn-dot.connected { background: var(--green); box-shadow: 0 0 8px var(--green); }
+    .conn-dot.connecting { background: var(--yellow); animation: pulse 1s infinite; }
+    .conn-dot.error { background: var(--red); }
+
+    /* ── Scrollbar global ────────────────────────────────────────────── */
+    ::-webkit-scrollbar { width: 4px; height: 4px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+  </style>
+</head>
+<body>
+
+<!-- ── Header ──────────────────────────────────────────────────────────── -->
+<header class="header">
+  <div class="logo">🎯</div>
+  <div>
+    <div class="header-title">Visual QA Sniper</div>
+    <div class="header-sub">Autonomous UI Testing · Powered by Gemini Vision</div>
+  </div>
+  <span id="statusBadge" class="badge badge-idle">Idle</span>
+  <div id="connDot" class="conn-dot" title="WebSocket connection"></div>
+</header>
+
+<main>
+
+  <!-- ── Left Panel ──────────────────────────────────────────────────── -->
+  <aside class="panel-left">
+
+    <!-- Control Form -->
+    <div class="panel-section">
+      <div class="section-label">Test Target</div>
+      <div class="field">
+        <label for="urlInput">Target URL</label>
+        <input id="urlInput" type="url" placeholder="https://example.com" autocomplete="off" />
+      </div>
+      <div class="field">
+        <label for="goalInput">Testing Goal</label>
+        <textarea id="goalInput" placeholder="e.g. Try to complete checkout. Find broken links. Explore the navigation and report visual bugs."></textarea>
+      </div>
+      <div class="btn-row">
+        <button id="startBtn" class="btn btn-primary" onclick="startTest()">
+          <span>▶</span> Start Test
+        </button>
+        <button id="stopBtn" class="btn btn-stop" onclick="stopTest()" disabled>
+          <span>■</span> Stop
+        </button>
+      </div>
+    </div>
+
+    <!-- Stats -->
+    <div class="panel-section">
+      <div class="section-label">Session Stats</div>
+      <div class="stats">
+        <div class="stat-card"><div id="statSteps" class="stat-val val-steps">0</div><div class="stat-lbl">Steps</div></div>
+        <div class="stat-card"><div id="statBugs"  class="stat-val val-bugs">0</div><div class="stat-lbl">Bugs</div></div>
+        <div class="stat-card"><div id="statTime"  class="stat-val val-time">0s</div><div class="stat-lbl">Elapsed</div></div>
+      </div>
+    </div>
+
+    <!-- Summary -->
+    <div id="summaryBanner" class="summary-banner"></div>
+
+    <!-- Action Log -->
+    <div class="panel-section" style="padding-bottom:10px">
+      <div class="section-label">Agent Actions</div>
+    </div>
+    <div class="log-wrap" id="logWrap">
+      <div class="log-empty">⚡ Enter a URL and goal to start testing</div>
+    </div>
+
+  </aside>
+
+  <!-- ── Right Panel ─────────────────────────────────────────────────── -->
+  <section class="panel-right">
+
+    <!-- Screen Feed -->
+    <div class="screen-wrap">
+      <div id="screenFrame" class="screen-frame">
+        <div class="screen-chrome">
+          <div class="chrome-dots">
+            <div class="chrome-dot dot-r"></div>
+            <div class="chrome-dot dot-y"></div>
+            <div class="chrome-dot dot-g"></div>
+          </div>
+          <div id="chromeUrl" class="chrome-url">about:blank</div>
+        </div>
+        <div id="screenContent" class="screen-placeholder">
+          <div class="icon">🖥️</div>
+          <p>Browser feed will appear here</p>
+        </div>
+      </div>
+      <div id="scanLine" class="scan-line"></div>
+    </div>
+
+    <!-- Bug Panel -->
+    <div class="bugs-panel">
+      <div class="bugs-header">
+        <span>🐛</span>
+        <h3>Visual Bugs Found</h3>
+        <span id="bugCount" class="bug-count">0</span>
+      </div>
+      <div id="bugsList" class="bugs-list">
+        <div class="bugs-empty">✅ No bugs detected yet</div>
+      </div>
+    </div>
+
+  </section>
+</main>
+
+<!-- Lightbox -->
+<div id="lightbox" class="lightbox" onclick="closeLightbox()">
+  <img id="lightboxImg" src="" alt="Bug screenshot" />
+</div>
+
+<script>
+  // ── WebSocket Manager ─────────────────────────────────────────────────
+  let ws = null;
+  let reconnectDelay = 1000;
+  let reconnectTimer = null;
+  let pingTimer = null;
+  let running = false;
+  let startTime = null;
+  let elapsedTimer = null;
+  let stepCount = 0;
+  let bugCount = 0;
+  let pendingStart = null; // stored {url, goal} for reconnect
+
+  const WS_URL = `ws://${location.host}/ws/stream`;
+
+  function connect() {
+    clearTimeout(reconnectTimer);
+    setConnState('connecting');
+    ws = new WebSocket(WS_URL);
+
+    ws.onopen = () => {
+      setConnState('connected');
+      reconnectDelay = 1000;
+      startPing();
+      if (pendingStart) doStart(pendingStart);
+    };
+
+    ws.onmessage = (e) => handleMessage(JSON.parse(e.data));
+
+    ws.onclose = () => {
+      setConnState('error');
+      stopPing();
+      if (running) {
+        // Exponential backoff reconnect
+        reconnectTimer = setTimeout(() => {
+          reconnectDelay = Math.min(reconnectDelay * 2, 16000);
+          connect();
+        }, reconnectDelay);
+      }
+    };
+
+    ws.onerror = () => setConnState('error');
+  }
+
+  function startPing() {
+    pingTimer = setInterval(() => {
+      if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({type:'ping'}));
+    }, 20000);
+  }
+  function stopPing() { clearInterval(pingTimer); }
+
+  function setConnState(state) {
+    const dot = document.getElementById('connDot');
+    dot.className = 'conn-dot ' + state;
+  }
+
+  // ── Message Handler ───────────────────────────────────────────────────
+  function handleMessage(msg) {
+    switch (msg.type) {
+      case 'pong': break;
+
+      case 'session_start':
+        logAction('info', '🚀', 0, `Session ${msg.session_id} started → ${msg.url}`);
+        break;
+
+      case 'screenshot':
+        updateScreen(msg.data, msg.url);
+        break;
+
+      case 'action':
+        stepCount = msg.step;
+        document.getElementById('statSteps').textContent = stepCount;
+        const icon = actionIcon(msg.tool);
+        const cls  = msg.tool === 'flag_visual_bug' ? 'log-item-bug'
+                   : msg.tool === 'mark_test_complete' ? 'log-item-done' : 'log-item-normal';
+        logAction(cls, icon, msg.step, msg.description);
+        break;
+
+      case 'bug':
+        bugCount++;
+        document.getElementById('statBugs').textContent = bugCount;
+        document.getElementById('bugCount').textContent = bugCount;
+        addBugCard(msg);
+        break;
+
+      case 'complete':
+        setRunning(false);
+        setBadge('done');
+        document.getElementById('scanLine').classList.remove('visible');
+        document.getElementById('screenFrame').classList.remove('active');
+        showSummary(`✅ ${msg.summary} · ${msg.bugs_found} bug(s) found · Session: ${msg.session_id}`);
+        logAction('log-item-done', '✅', stepCount, 'Test complete: ' + msg.summary);
+        break;
+
+      case 'stopped':
+        setRunning(false);
+        setBadge('idle');
+        document.getElementById('scanLine').classList.remove('visible');
+        break;
+
+      case 'error':
+        logAction('log-item-bug', '❌', stepCount, 'Error: ' + msg.message);
+        setBadge('err');
+        setRunning(false);
+        break;
+    }
+  }
+
+  // ── Control ───────────────────────────────────────────────────────────
+  function startTest() {
+    const url = document.getElementById('urlInput').value.trim();
+    const goal = document.getElementById('goalInput').value.trim() ||
+                 'Explore the UI and report any visual bugs you find.';
+    if (!url) { alert('Please enter a target URL.'); return; }
+
+    // Reset UI
+    stepCount = 0; bugCount = 0;
+    document.getElementById('statSteps').textContent = '0';
+    document.getElementById('statBugs').textContent = '0';
+    document.getElementById('bugCount').textContent = '0';
+    document.getElementById('logWrap').innerHTML = '';
+    document.getElementById('bugsList').innerHTML = '<div class="bugs-empty">⚡ Scanning…</div>';
+    document.getElementById('summaryBanner').classList.remove('visible');
+
+    setRunning(true);
+    setBadge('run');
+    document.getElementById('scanLine').classList.add('visible');
+    document.getElementById('screenFrame').classList.add('active');
+
+    startTime = Date.now();
+    clearInterval(elapsedTimer);
+    elapsedTimer = setInterval(() => {
+      const s = Math.round((Date.now() - startTime) / 1000);
+      document.getElementById('statTime').textContent = s + 's';
+    }, 1000);
+
+    const payload = {type: 'start', url, goal};
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      doStart(payload);
+    } else {
+      pendingStart = payload;
+      connect();
+    }
+  }
+
+  function doStart(payload) {
+    pendingStart = null;
+    ws.send(JSON.stringify(payload));
+  }
+
+  function stopTest() {
+    if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({type:'stop'}));
+    setRunning(false);
+    clearInterval(elapsedTimer);
+    document.getElementById('scanLine').classList.remove('visible');
+    document.getElementById('screenFrame').classList.remove('active');
+    setBadge('idle');
+  }
+
+  function setRunning(val) {
+    running = val;
+    document.getElementById('startBtn').disabled = val;
+    document.getElementById('stopBtn').disabled  = !val;
+    if (!val) { clearInterval(elapsedTimer); }
+  }
+
+  // ── UI Helpers ────────────────────────────────────────────────────────
+  function updateScreen(b64, url) {
+    const content = document.getElementById('screenContent');
+    const chrome  = document.getElementById('chromeUrl');
+    chrome.textContent = url || 'loading…';
+    content.outerHTML = `<img id="screenContent" class="screen-img" src="data:image/jpeg;base64,${b64}" alt="Browser snapshot" />`;
+  }
+
+  function logAction(cls, icon, step, text) {
+    const wrap = document.getElementById('logWrap');
+    // Remove empty placeholder
+    const empty = wrap.querySelector('.log-empty');
+    if (empty) empty.remove();
+    const el = document.createElement('div');
+    el.className = `log-item ${cls}`;
+    el.innerHTML = `
+      <span class="log-icon">${icon}</span>
+      <span class="log-step">#${String(step).padStart(2,'0')}</span>
+      <span class="log-text">${escHtml(text)}</span>
+    `;
+    wrap.appendChild(el);
+    wrap.scrollTop = wrap.scrollHeight;
+  }
+
+  function addBugCard(bug) {
+    const list = document.getElementById('bugsList');
+    const empty = list.querySelector('.bugs-empty');
+    if (empty) empty.remove();
+    const sev = (bug.severity || 'medium').toLowerCase();
+    const card = document.createElement('div');
+    card.className = 'bug-card';
+    card.innerHTML = `
+      <span class="bug-sev sev-${sev}">${sev}</span>
+      <p class="bug-desc">${escHtml(bug.description)}</p>
+      <p class="bug-step">Step #${bug.step}${bug.x > 0 ? ` · (${bug.x}, ${bug.y})` : ''}</p>
+      ${bug.screenshot
+        ? `<img class="bug-thumb" src="data:image/jpeg;base64,${bug.screenshot}" alt="Bug screenshot" onclick="openLightbox(this.src)" />`
+        : ''}
+    `;
+    list.appendChild(card);
+    card.scrollIntoView({behavior:'smooth', inline:'nearest'});
+  }
+
+  function showSummary(text) {
+    const el = document.getElementById('summaryBanner');
+    el.textContent = text;
+    el.classList.add('visible');
+  }
+
+  function setBadge(state) {
+    const b = document.getElementById('statusBadge');
+    const map = {
+      idle: ['badge-idle', 'Idle'],
+      run:  ['badge-run',  'Running'],
+      done: ['badge-done', 'Complete'],
+      err:  ['badge-err',  'Error'],
+    };
+    b.className = 'badge ' + (map[state]?.[0] || 'badge-idle');
+    b.textContent = map[state]?.[1] || 'Idle';
+  }
+
+  function actionIcon(tool) {
+    const icons = {
+      navigate_to_url:   '🌐',
+      click_element:     '👆',
+      type_into_field:   '⌨️',
+      press_keyboard_key:'↩️',
+      scroll_page:       '📜',
+      hover_over_element:'🖱️',
+      go_back:           '⬅️',
+      flag_visual_bug:   '🐛',
+      mark_test_complete:'✅',
+      thinking:          '🧠',
+    };
+    return icons[tool] || '⚡';
+  }
+
+  function escHtml(s) {
+    return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  }
+
+  function openLightbox(src) {
+    document.getElementById('lightboxImg').src = src;
+    document.getElementById('lightbox').classList.add('open');
+  }
+  function closeLightbox() {
+    document.getElementById('lightbox').classList.remove('open');
+  }
+
+  // ── Boot ──────────────────────────────────────────────────────────────
+  connect();
+  // Allow Enter key in URL field to start
+  document.getElementById('urlInput').addEventListener('keydown', e => {
+    if (e.key === 'Enter') startTest();
+  });
+</script>
+</body>
+</html>
