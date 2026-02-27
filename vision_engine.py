@@ -63,11 +63,16 @@ class BrowserEngine:
             url = "https://" + url
         self.current_url = url
         try:
-            await self.page.goto(url, wait_until="networkidle", timeout=20_000)
+            # domcontentloaded is much faster than networkidle — works on SPAs too
+            await self.page.goto(url, wait_until="domcontentloaded", timeout=45_000)
         except Exception:
-            # Some pages never hit networkidle — fall back to load
-            await self.page.goto(url, wait_until="load", timeout=20_000)
-        await self.page.wait_for_timeout(800)
+            try:
+                # Minimal fallback: just wait for the first byte
+                await self.page.goto(url, wait_until="commit", timeout=15_000)
+            except Exception:
+                pass  # Screenshot whatever state we're in
+        await self.page.wait_for_timeout(1_200)
+        self.current_url = self.page.url
         return await self._capture()
 
     async def click(self, x: int, y: int) -> str:

@@ -3,8 +3,12 @@ fastapi
 uvicorn[standard]
 websockets
 
-# Google Gemini API (direct SDK — no ADK needed)
+# Google Gemini API
+google-genai
 google-generativeai
+
+# OpenRouter / OpenAI-compatible client (free models via openrouter.ai)
+openai
 
 # Browser automation
 playwright

@@ -1,677 +1,1611 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Visual QA Sniper — Autonomous UI Testing</title>
-  <meta name="description" content="Autonomous web UI testing agent powered by Gemini Vision. No DOM selectors — pure computer vision." />
+  <meta name="description"
+    content="AI-powered autonomous visual QA testing agent that finds UI bugs in any web application." />
+  <!-- Puter.js: free unlimited Llama 4 + vision AI, no API key needed -->
+  <script src="https://js.puter.com/v2/"></script>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <link
+    href="https://fonts.googleapis.com/css2?family=Inter:ital,wght@0,300;0,400;0,500;0,600;0,700;0,800;1,400&family=JetBrains+Mono:wght@400;500&display=swap"
+    rel="stylesheet" />
   <style>
-    /* ── Design Tokens ───────────────────────────────────────────────── */
+    /* ══════════════════════════════════════════
+       Design Tokens
+    ══════════════════════════════════════════ */
     :root {
-      --bg:         #080b14;
-      --bg2:        #0d111f;
-      --surface:    rgba(255,255,255,0.04);
-      --surface-h:  rgba(255,255,255,0.08);
-      --border:     rgba(255,255,255,0.08);
-      --border-h:   rgba(255,255,255,0.16);
-      --accent:     #6c63ff;
-      --accent2:    #4facfe;
-      --green:      #22c55e;
-      --red:        #ef4444;
-      --orange:     #f97316;
-      --yellow:     #eab308;
-      --text:       #e2e8f0;
-      --muted:      #64748b;
-      --radius:     12px;
-      --radius-lg:  20px;
-      --glow:       0 0 40px rgba(108,99,255,0.15);
-    }
-    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-    html { scroll-behavior: smooth; }
-    body {
-      background: var(--bg);
-      color: var(--text);
-      font-family: 'Inter', sans-serif;
-      min-height: 100vh;
-      overflow-x: hidden;
+      --bg: #060a16;
+      --bg-2: #0b1120;
+      --surface: rgba(255, 255, 255, 0.04);
+      --surface-2: rgba(255, 255, 255, 0.07);
+      --border: rgba(255, 255, 255, 0.08);
+      --border-2: rgba(255, 255, 255, 0.13);
+
+      --purple: #7c5cfc;
+      --purple-light: #a78bfa;
+      --purple-glow: rgba(124, 92, 252, 0.3);
+      --purple-dim: rgba(124, 92, 252, 0.12);
+
+      --teal: #4fffcb;
+      --teal-dim: rgba(79, 255, 203, 0.12);
+      --red: #ff4f6b;
+      --red-dim: rgba(255, 79, 107, 0.1);
+      --orange: #f97316;
+      --yellow: #fbbf24;
+
+      --text: #e2e8f5;
+      --muted: #7b82a0;
+      --dim: #4a5070;
+
+      --radius: 10px;
+      --radius-lg: 14px;
+      --header-h: 58px;
+      --panel-w: 340px;
+      --transition: 0.2s ease;
     }
 
-    /* ── Animated gradient background ───────────────────────────────── */
-    body::before {
+    *,
+    *::before,
+    *::after {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: 'Inter', sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      height: 100vh;
+      display: grid;
+      grid-template-rows: var(--header-h) 1fr;
+      overflow: hidden;
+    }
+
+    /* ══════════════════════════════════════════
+       HEADER
+    ══════════════════════════════════════════ */
+    header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 18px;
+      border-bottom: 1px solid var(--border);
+      background: rgba(6, 10, 22, 0.95);
+      backdrop-filter: blur(20px);
+      position: relative;
+      z-index: 20;
+    }
+
+    /* subtle gradient accent line at top of header */
+    header::before {
       content: '';
-      position: fixed; inset: 0; z-index: -1;
-      background:
-        radial-gradient(ellipse 80% 50% at 20% 0%, rgba(108,99,255,0.12) 0%, transparent 60%),
-        radial-gradient(ellipse 60% 40% at 80% 100%, rgba(79,172,254,0.08) 0%, transparent 60%);
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: 2px;
+      background: linear-gradient(90deg, transparent, var(--purple), var(--teal), transparent);
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 11px;
+    }
+
+    .brand-icon {
+      width: 36px;
+      height: 36px;
+      border-radius: 10px;
+      background: linear-gradient(135deg, #5b3fe8, #a78bfa);
+      display: grid;
+      place-items: center;
+      font-size: 19px;
+      box-shadow: 0 0 20px var(--purple-glow);
+      flex-shrink: 0;
+    }
+
+    .brand-name {
+      font-weight: 800;
+      font-size: 15px;
+      letter-spacing: -0.01em;
+      background: linear-gradient(135deg, #e2e8f5, #a78bfa);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+
+    .brand-sub {
+      font-size: 11px;
+      color: var(--muted);
+      margin-top: 1px;
+    }
+
+    .header-center {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      padding: 4px 12px;
+      font-size: 11px;
+      color: var(--muted);
+    }
+
+    .header-center strong {
+      color: var(--text);
+    }
+
+    .header-right {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    #statusBadge {
+      padding: 4px 14px;
+      border-radius: 20px;
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      transition: all 0.35s;
+      background: var(--surface);
+      color: var(--muted);
+      border: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      gap: 5px;
+    }
+
+    #statusBadge::before {
+      content: '';
+      display: block;
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: currentColor;
+      transition: box-shadow 0.35s;
+    }
+
+    #statusBadge.idle {
+      color: var(--muted);
+    }
+
+    #statusBadge.running {
+      color: var(--purple-light);
+      border-color: rgba(124, 92, 252, 0.35);
+      background: var(--purple-dim);
+      animation: badge-pulse 2s infinite;
+    }
+
+    #statusBadge.running::before {
+      box-shadow: 0 0 6px currentColor;
+    }
+
+    #statusBadge.complete {
+      color: var(--teal);
+      border-color: rgba(79, 255, 203, 0.3);
+      background: var(--teal-dim);
+    }
+
+    #statusBadge.error {
+      color: var(--red);
+      border-color: rgba(255, 79, 107, 0.3);
+      background: var(--red-dim);
+    }
+
+    @keyframes badge-pulse {
+
+      0%,
+      100% {
+        opacity: 1
+      }
+
+      50% {
+        opacity: 0.65
+      }
+    }
+
+    .ws-indicator {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      font-size: 11px;
+      color: var(--muted);
+      cursor: default;
+    }
+
+    .ws-dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: var(--teal);
+      box-shadow: 0 0 8px rgba(79, 255, 203, 0.6);
+      transition: all 0.3s;
+    }
+
+    .ws-dot.off {
+      background: var(--dim);
+      box-shadow: none;
+    }
+
+    /* ══════════════════════════════════════════
+       MAIN LAYOUT
+    ══════════════════════════════════════════ */
+    main {
+      display: grid;
+      grid-template-columns: var(--panel-w) 1fr;
+      overflow: hidden;
+    }
+
+    /* ══════════════════════════════════════════
+       LEFT PANEL
+    ══════════════════════════════════════════ */
+    .left-panel {
+      border-right: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      background: var(--bg-2);
+    }
+
+    .panel-section {
+      padding: 14px 16px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .section-label {
+      font-size: 10px;
+      font-weight: 600;
+      letter-spacing: 0.12em;
+      color: var(--muted);
+      text-transform: uppercase;
+      margin-bottom: 10px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .section-label::after {
+      content: '';
+      flex: 1;
+      height: 1px;
+      background: var(--border);
+    }
+
+    label {
+      font-size: 11px;
+      color: var(--muted);
+      display: block;
+      margin-bottom: 5px;
+      font-weight: 500;
+    }
+
+    input,
+    textarea {
+      width: 100%;
+      padding: 9px 12px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      color: var(--text);
+      font-family: inherit;
+      font-size: 13px;
+      transition: border-color var(--transition), background var(--transition), box-shadow var(--transition);
+      margin-bottom: 8px;
+    }
+
+    input:focus,
+    textarea:focus {
+      outline: none;
+      border-color: var(--purple);
+      background: rgba(124, 92, 252, 0.05);
+      box-shadow: 0 0 0 3px rgba(124, 92, 252, 0.12);
+    }
+
+    textarea {
+      resize: none;
+      height: 72px;
+    }
+
+    /* Model chips */
+    .model-chips {
+      display: flex;
+      gap: 5px;
+      flex-wrap: wrap;
+    }
+
+    .chip {
+      padding: 4px 10px;
+      border-radius: 20px;
+      font-size: 11px;
+      font-weight: 500;
+      cursor: pointer;
+      border: 1px solid var(--border);
+      background: var(--surface);
+      color: var(--muted);
+      transition: all var(--transition);
+      white-space: nowrap;
+    }
+
+    .chip:hover {
+      border-color: var(--border-2);
+      color: var(--text);
+    }
+
+    .chip.active {
+      border-color: var(--purple);
+      color: var(--purple-light);
+      background: var(--purple-dim);
+      box-shadow: 0 0 10px rgba(124, 92, 252, 0.15);
+    }
+
+    /* Buttons */
+    .btn-row {
+      display: flex;
+      gap: 8px;
+      margin-top: 12px;
+    }
+
+    .btn {
+      flex: 1;
+      padding: 10px;
+      border-radius: var(--radius);
+      border: none;
+      cursor: pointer;
+      font-size: 13px;
+      font-weight: 600;
+      transition: all var(--transition);
+      font-family: inherit;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+    }
+
+    .btn-start {
+      background: linear-gradient(135deg, var(--purple), var(--purple-light));
+      color: white;
+      box-shadow: 0 4px 20px var(--purple-glow);
+    }
+
+    .btn-start:hover {
+      filter: brightness(1.12);
+      transform: translateY(-1px);
+      box-shadow: 0 6px 24px var(--purple-glow);
+    }
+
+    .btn-start:active {
+      transform: translateY(0);
+    }
+
+    .btn-stop {
+      background: var(--red-dim);
+      color: var(--red);
+      border: 1px solid rgba(255, 79, 107, 0.25);
+    }
+
+    .btn-stop:hover {
+      background: rgba(255, 79, 107, 0.18);
+    }
+
+    .btn-export {
+      flex: none;
+      padding: 10px 14px;
+      background: var(--surface);
+      color: var(--muted);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      font-size: 12px;
+      font-weight: 600;
+      font-family: inherit;
+      cursor: pointer;
+      transition: all var(--transition);
+    }
+
+    .btn-export:hover {
+      border-color: var(--teal);
+      color: var(--teal);
+      background: var(--teal-dim);
+    }
+
+    /* ── Stats ── */
+    .stats-row {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 7px;
+    }
+
+    .stat-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 10px 8px;
+      text-align: center;
+      transition: border-color var(--transition);
+    }
+
+    .stat-card:hover {
+      border-color: var(--border-2);
+    }
+
+    .stat-value {
+      font-size: 22px;
+      font-weight: 800;
+      font-variant-numeric: tabular-nums;
+      letter-spacing: -0.02em;
+    }
+
+    .stat-label {
+      font-size: 9px;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      margin-top: 2px;
+    }
+
+    #statSteps .stat-value {
+      color: var(--purple-light);
+    }
+
+    #statBugs .stat-value {
+      color: var(--red);
+    }
+
+    #statElapsed .stat-value {
+      color: var(--teal);
+    }
+
+    /* ── Step progress bar ── */
+    .progress-wrap {
+      padding: 6px 16px 10px;
+    }
+
+    .progress-label {
+      display: flex;
+      justify-content: space-between;
+      font-size: 10px;
+      color: var(--muted);
+      margin-bottom: 5px;
+    }
+
+    .progress-track {
+      height: 4px;
+      background: var(--surface-2);
+      border-radius: 4px;
+      overflow: hidden;
+    }
+
+    .progress-fill {
+      height: 100%;
+      width: 0%;
+      background: linear-gradient(90deg, var(--purple), var(--teal));
+      border-radius: 4px;
+      transition: width 0.4s ease;
+    }
+
+    /* ── Action Log ── */
+    .log-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 10px 16px 4px;
+    }
+
+    .log-clear-btn {
+      font-size: 10px;
+      color: var(--dim);
+      cursor: pointer;
+      background: none;
+      border: none;
+      font-family: inherit;
+      transition: color var(--transition);
+    }
+
+    .log-clear-btn:hover {
+      color: var(--muted);
+    }
+
+    .log-wrap {
+      flex: 1;
+      overflow-y: auto;
+      padding: 4px 8px 8px;
+    }
+
+    .log-entry {
+      display: flex;
+      align-items: flex-start;
+      gap: 7px;
+      padding: 6px 8px;
+      border-radius: 7px;
+      font-size: 11.5px;
+      margin-bottom: 2px;
+      background: rgba(255, 255, 255, 0.02);
+      animation: fadeUp 0.22s ease;
+    }
+
+    @keyframes fadeUp {
+      from {
+        opacity: 0;
+        transform: translateY(5px)
+      }
+
+      to {
+        opacity: 1;
+        transform: none
+      }
+    }
+
+    .log-icon {
+      font-size: 13px;
+      flex-shrink: 0;
+      line-height: 1.6;
+    }
+
+    .log-meta {
+      color: var(--dim);
+      font-size: 9.5px;
+      flex-shrink: 0;
+      font-family: 'JetBrains Mono', monospace;
+      line-height: 1.7;
+    }
+
+    .log-time {
+      color: var(--dim);
+      font-size: 9px;
+      font-family: 'JetBrains Mono', monospace;
+      line-height: 1.7;
+      flex-shrink: 0;
+    }
+
+    .log-text {
+      line-height: 1.5;
+      flex: 1;
+      word-break: break-word;
+    }
+
+    .log-bug {
+      background: rgba(255, 79, 107, 0.06);
+    }
+
+    .log-bug .log-text {
+      color: #fca5a5;
+    }
+
+    .log-complete {
+      background: rgba(79, 255, 203, 0.06);
+    }
+
+    .log-complete .log-text {
+      color: var(--teal);
+    }
+
+    .log-response {
+      background: rgba(124, 92, 252, 0.06);
+      border-left: 2px solid rgba(124, 92, 252, 0.25);
+      cursor: pointer;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 10px;
+      color: #8b7cf8;
+    }
+
+    .log-response:hover {
+      background: rgba(124, 92, 252, 0.1);
+    }
+
+    .log-navigate .log-text {
+      color: #93c5fd;
+    }
+
+    .log-thinking {
+      color: var(--muted);
+      font-style: italic;
+    }
+
+    /* ══════════════════════════════════════════
+       RIGHT PANEL
+    ══════════════════════════════════════════ */
+    .right-panel {
+      display: grid;
+      grid-template-rows: 1fr 200px;
+      overflow: hidden;
+    }
+
+    /* ── Screenshot Pane ── */
+    .screenshot-wrap {
+      position: relative;
+      overflow: hidden;
+      background: #030508;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    /* subtle grid bg */
+    .screenshot-wrap::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background-image:
+        linear-gradient(rgba(255, 255, 255, 0.015) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(255, 255, 255, 0.015) 1px, transparent 1px);
+      background-size: 30px 30px;
       pointer-events: none;
     }
 
-    /* ── Layout ──────────────────────────────────────────────────────── */
-    .header {
-      display: flex; align-items: center; gap: 14px;
-      padding: 20px 32px;
-      border-bottom: 1px solid var(--border);
-      backdrop-filter: blur(20px);
-      position: sticky; top: 0; z-index: 100;
-      background: rgba(8,11,20,0.85);
+    #screenshotImg {
+      max-width: 100%;
+      max-height: 100%;
+      object-fit: contain;
+      transition: opacity 0.18s, transform 0.18s;
+      position: relative;
+      z-index: 1;
     }
-    .logo {
-      width: 36px; height: 36px;
-      background: linear-gradient(135deg, var(--accent), var(--accent2));
-      border-radius: 8px;
-      display: flex; align-items: center; justify-content: center;
-      font-size: 18px;
-    }
-    .header-title { font-weight: 700; font-size: 17px; letter-spacing: -0.3px; }
-    .header-sub { color: var(--muted); font-size: 12px; margin-top: 2px; }
-    .badge {
-      margin-left: auto;
-      padding: 4px 12px; border-radius: 100px;
-      font-size: 11px; font-weight: 600; letter-spacing: 0.5px;
-      text-transform: uppercase;
-    }
-    .badge-idle  { background: var(--surface); color: var(--muted); border: 1px solid var(--border); }
-    .badge-run   { background: rgba(108,99,255,0.2); color: var(--accent); border: 1px solid rgba(108,99,255,0.4); animation: pulse 2s infinite; }
-    .badge-done  { background: rgba(34,197,94,0.15); color: var(--green); border: 1px solid rgba(34,197,94,0.4); }
-    .badge-err   { background: rgba(239,68,68,0.15); color: var(--red); border: 1px solid rgba(239,68,68,0.3); }
-    @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.6} }
 
-    main { display: grid; grid-template-columns: 460px 1fr; gap: 0; height: calc(100vh - 73px); }
+    .screenshot-placeholder {
+      text-align: center;
+      color: var(--dim);
+      z-index: 1;
+    }
 
-    /* ── Left Panel ──────────────────────────────────────────────────── */
-    .panel-left {
-      border-right: 1px solid var(--border);
-      display: flex; flex-direction: column;
+    .screenshot-placeholder svg {
+      opacity: 0.2;
+      width: 56px;
+      height: 56px;
+      display: block;
+      margin: 0 auto 12px;
+    }
+
+    .screenshot-placeholder p {
+      font-size: 13px;
+    }
+
+    .screenshot-placeholder small {
+      font-size: 11px;
+      margin-top: 4px;
+      display: block;
+    }
+
+    /* scanning ring animation */
+    .scan-ring {
+      position: absolute;
+      top: 14px;
+      right: 14px;
+      width: 36px;
+      height: 36px;
+      z-index: 5;
+      display: none;
+    }
+
+    .scan-ring.active {
+      display: block;
+    }
+
+    .scan-ring svg {
+      animation: spin 1.2s linear infinite;
+    }
+
+    @keyframes spin {
+      to {
+        transform: rotate(360deg)
+      }
+    }
+
+    /* URL bar overlay */
+    .url-bar {
+      position: absolute;
+      bottom: 10px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: rgba(6, 10, 22, 0.85);
+      backdrop-filter: blur(10px);
+      padding: 4px 16px;
+      border-radius: 20px;
+      font-size: 10.5px;
+      color: var(--muted);
+      border: 1px solid var(--border);
+      max-width: 70%;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      z-index: 5;
+      display: none;
+      font-family: 'JetBrains Mono', monospace;
+    }
+
+    /* Screenshot controls */
+    .screenshot-controls {
+      position: absolute;
+      top: 10px;
+      left: 10px;
+      display: flex;
+      gap: 5px;
+      z-index: 5;
+    }
+
+    .sc-btn {
+      width: 28px;
+      height: 28px;
+      border-radius: 7px;
+      background: rgba(6, 10, 22, 0.8);
+      backdrop-filter: blur(8px);
+      border: 1px solid var(--border);
+      color: var(--muted);
+      font-size: 13px;
+      cursor: pointer;
+      display: grid;
+      place-items: center;
+      transition: all var(--transition);
+    }
+
+    .sc-btn:hover {
+      border-color: var(--border-2);
+      color: var(--text);
+    }
+
+    /* ── Bug Panel ── */
+    .bug-panel {
+      border-top: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
       overflow: hidden;
     }
-    .panel-section {
-      padding: 20px 24px;
+
+    .bug-header {
+      padding: 9px 14px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
       border-bottom: 1px solid var(--border);
-    }
-    .section-label {
-      font-size: 10px; font-weight: 600; letter-spacing: 1.5px;
-      text-transform: uppercase; color: var(--muted); margin-bottom: 14px;
+      flex-shrink: 0;
+      background: rgba(255, 79, 107, 0.03);
     }
 
-    /* ── Form ────────────────────────────────────────────────────────── */
-    .field { margin-bottom: 14px; }
-    .field label { display: block; font-size: 12px; font-weight: 500; color: var(--muted); margin-bottom: 6px; }
-    .field input, .field textarea {
-      width: 100%;
-      background: var(--surface); border: 1px solid var(--border);
-      border-radius: var(--radius); color: var(--text);
-      font-family: inherit; font-size: 14px;
-      padding: 10px 14px; outline: none;
-      transition: border-color 0.2s, box-shadow 0.2s;
-    }
-    .field input:focus, .field textarea:focus {
-      border-color: var(--accent); box-shadow: 0 0 0 3px rgba(108,99,255,0.15);
-    }
-    .field input::placeholder, .field textarea::placeholder { color: var(--muted); }
-    .field textarea { resize: none; height: 72px; font-size: 13px; line-height: 1.5; }
-
-    .btn-row { display: flex; gap: 10px; }
-    .btn {
-      flex: 1; padding: 11px 18px; border-radius: var(--radius);
-      font-family: inherit; font-size: 14px; font-weight: 600;
-      cursor: pointer; border: none; transition: all 0.2s;
-      display: flex; align-items: center; justify-content: center; gap: 8px;
-    }
-    .btn-primary {
-      background: linear-gradient(135deg, var(--accent), #8b5cf6);
-      color: #fff;
-      box-shadow: 0 4px 20px rgba(108,99,255,0.3);
-    }
-    .btn-primary:hover { transform: translateY(-1px); box-shadow: 0 6px 28px rgba(108,99,255,0.45); }
-    .btn-primary:active { transform: translateY(0); }
-    .btn-primary:disabled { opacity: 0.45; cursor: not-allowed; transform: none; }
-    .btn-stop {
-      background: rgba(239,68,68,0.15); color: var(--red);
-      border: 1px solid rgba(239,68,68,0.35);
-    }
-    .btn-stop:hover { background: rgba(239,68,68,0.25); }
-    .btn-stop:disabled { opacity: 0.35; cursor: not-allowed; }
-
-    /* ── Stats strip ─────────────────────────────────────────────────── */
-    .stats { display: grid; grid-template-columns: repeat(3,1fr); gap: 10px; }
-    .stat-card {
-      background: var(--surface); border: 1px solid var(--border);
-      border-radius: var(--radius); padding: 12px 14px; text-align: center;
-    }
-    .stat-val { font-size: 22px; font-weight: 800; letter-spacing: -1px; }
-    .stat-lbl { font-size: 10px; color: var(--muted); margin-top: 2px; font-weight: 500; text-transform: uppercase; letter-spacing: 0.5px; }
-    .val-steps { color: var(--accent2); }
-    .val-bugs  { color: var(--red); }
-    .val-time  { color: var(--green); }
-
-    /* ── Action Log ──────────────────────────────────────────────────── */
-    .log-wrap {
-      flex: 1; overflow-y: auto;
-      padding: 16px 24px;
-      display: flex; flex-direction: column; gap: 6px;
-    }
-    .log-wrap::-webkit-scrollbar { width: 4px; }
-    .log-wrap::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
-    .log-item {
-      display: flex; align-items: flex-start; gap: 10px;
-      padding: 8px 12px; border-radius: 8px;
-      animation: fadeIn 0.25s ease;
-      font-size: 12px; line-height: 1.5;
-    }
-    @keyframes fadeIn { from{opacity:0;transform:translateY(4px)} to{opacity:1;transform:translateY(0)} }
-    .log-item-normal { background: var(--surface); }
-    .log-item-bug    { background: rgba(239,68,68,0.1); border: 1px solid rgba(239,68,68,0.25); }
-    .log-item-done   { background: rgba(34,197,94,0.1); border: 1px solid rgba(34,197,94,0.25); }
-    .log-icon { font-size: 14px; margin-top: 1px; flex-shrink: 0; }
-    .log-step { color: var(--muted); font-family: 'JetBrains Mono', monospace; font-size: 10px; flex-shrink: 0; margin-top: 2px; }
-    .log-text { color: var(--text); }
-    .log-empty { color: var(--muted); font-size: 13px; text-align: center; margin: auto; padding: 40px 0; }
-
-    /* ── Right Panel ─────────────────────────────────────────────────── */
-    .panel-right {
-      display: flex; flex-direction: column; overflow: hidden;
+    .bug-header-title {
+      font-weight: 600;
+      font-size: 12.5px;
     }
 
-    /* ── Screen Feed ─────────────────────────────────────────────────── */
-    .screen-wrap {
-      flex: 1; display: flex; align-items: center; justify-content: center;
-      background: var(--bg2); position: relative; overflow: hidden;
-      padding: 24px;
+    /* findings panel badge — softer orange to signal "issues" not just crashes */
+    .bug-badge {
+      background: var(--orange);
+      color: white;
+      border-radius: 10px;
+      padding: 1px 8px;
+      font-size: 10.5px;
+      font-weight: 700;
+      min-width: 22px;
+      text-align: center;
+      transition: background 0.3s;
     }
-    .screen-frame {
-      position: relative; width: 100%; max-width: 960px;
-      border-radius: var(--radius-lg); overflow: hidden;
-      border: 1px solid var(--border);
-      box-shadow: 0 20px 80px rgba(0,0,0,0.6), var(--glow);
-      transition: box-shadow 0.4s;
-    }
-    .screen-frame.active { box-shadow: 0 20px 80px rgba(0,0,0,0.7), 0 0 60px rgba(108,99,255,0.2); }
-    .screen-chrome {
-      background: rgba(20,24,36,0.98); padding: 10px 16px;
-      display: flex; align-items: center; gap: 10px;
-      border-bottom: 1px solid var(--border);
-    }
-    .chrome-dots { display: flex; gap: 6px; }
-    .chrome-dot { width: 10px; height: 10px; border-radius: 50%; }
-    .dot-r { background: #ff5f57; }
-    .dot-y { background: #febc2e; }
-    .dot-g { background: #28c840; }
-    .chrome-url {
-      flex: 1; background: rgba(255,255,255,0.06); border-radius: 6px;
-      padding: 4px 12px; font-size: 12px; color: var(--muted);
-      font-family: 'JetBrains Mono', monospace; overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
-    }
-    .screen-img {
-      display: block; width: 100%; aspect-ratio: 16/9;
-      object-fit: cover; object-position: top;
-    }
-    .screen-placeholder {
-      aspect-ratio: 16/9; display: flex; flex-direction: column;
-      align-items: center; justify-content: center; gap: 12px;
-      background: var(--bg2); color: var(--muted);
-    }
-    .screen-placeholder .icon { font-size: 48px; opacity: 0.3; }
-    .screen-placeholder p { font-size: 14px; }
 
-    /* ── Loading Scan Line ───────────────────────────────────────────── */
-    .scan-line {
-      position: absolute; left: 0; right: 0; height: 2px;
-      background: linear-gradient(90deg, transparent, var(--accent), transparent);
-      animation: scan 1.8s linear infinite;
-      opacity: 0; pointer-events: none;
+    #scanStatus {
+      margin-left: auto;
+      font-size: 10.5px;
+      color: var(--muted);
     }
-    .scan-line.visible { opacity: 1; }
-    @keyframes scan { from{top:0%} to{top:100%} }
 
-    /* ── Bug Panel ───────────────────────────────────────────────────── */
-    .bugs-panel {
-      height: 260px; border-top: 1px solid var(--border);
-      display: flex; flex-direction: column;
-    }
-    .bugs-header {
-      padding: 12px 20px; display: flex; align-items: center; gap: 8px;
-      border-bottom: 1px solid var(--border);
-    }
-    .bugs-header h3 { font-size: 13px; font-weight: 600; }
-    .bug-count {
-      background: rgba(239,68,68,0.2); color: var(--red);
-      border-radius: 100px; padding: 2px 8px; font-size: 11px; font-weight: 700;
-    }
     .bugs-list {
-      flex: 1; overflow-y: auto; display: flex;
-      gap: 10px; padding: 12px 20px;
+      flex: 1;
+      overflow-y: auto;
+      padding: 5px 6px;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
     }
-    .bugs-list::-webkit-scrollbar { height: 4px; }
-    .bugs-list::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+
     .bug-card {
-      flex-shrink: 0; width: 260px;
-      background: rgba(239,68,68,0.07); border: 1px solid rgba(239,68,68,0.25);
-      border-radius: var(--radius); padding: 12px 14px;
-      animation: fadeIn 0.3s ease;
-    }
-    .bug-sev {
-      display: inline-block; padding: 2px 8px; border-radius: 100px;
-      font-size: 10px; font-weight: 700; text-transform: uppercase; margin-bottom: 8px;
-    }
-    .sev-critical { background: rgba(239,68,68,0.3); color: #ff6b6b; }
-    .sev-high     { background: rgba(249,115,22,0.3); color: var(--orange); }
-    .sev-medium   { background: rgba(234,179,8,0.3); color: var(--yellow); }
-    .sev-low      { background: rgba(100,116,139,0.3); color: var(--muted); }
-    .bug-desc { font-size: 12px; color: var(--text); line-height: 1.5; }
-    .bug-step { font-size: 10px; color: var(--muted); margin-top: 6px; font-family: 'JetBrains Mono', monospace; }
-    .bug-thumb {
-      margin-top: 8px; width: 100%; height: 80px;
-      border-radius: 6px; object-fit: cover; object-position: top;
-      border: 1px solid var(--border); cursor: pointer;
-      transition: opacity 0.2s;
-    }
-    .bug-thumb:hover { opacity: 0.85; }
-    .bugs-empty {
-      flex: 1; display: flex; align-items: center; justify-content: center;
-      color: var(--muted); font-size: 13px; gap: 8px;
+      background: rgba(255, 79, 107, 0.05);
+      border: 1px solid rgba(255, 79, 107, 0.18);
+      border-radius: 8px;
+      padding: 8px 10px;
+      font-size: 11.5px;
+      animation: fadeUp 0.3s ease;
+      cursor: pointer;
+      transition: background var(--transition);
     }
 
-    /* ── Summary banner ──────────────────────────────────────────────── */
-    .summary-banner {
-      margin: 0 20px 12px;
-      padding: 12px 16px; border-radius: var(--radius);
-      background: rgba(34,197,94,0.1); border: 1px solid rgba(34,197,94,0.3);
-      font-size: 13px; color: var(--green); display: none; animation: fadeIn 0.4s ease;
+    .bug-card:hover {
+      background: rgba(255, 79, 107, 0.09);
     }
-    .summary-banner.visible { display: block; }
 
-    /* ── Lightbox ────────────────────────────────────────────────────── */
-    .lightbox {
-      position: fixed; inset: 0; z-index: 1000;
-      background: rgba(0,0,0,0.85); display: none;
-      align-items: center; justify-content: center; cursor: pointer;
+    .bug-card-top {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      margin-bottom: 3px;
     }
-    .lightbox.open { display: flex; }
-    .lightbox img { max-width: 90vw; max-height: 90vh; border-radius: 8px; }
 
-    /* ── Connection indicator ────────────────────────────────────────── */
-    .conn-dot {
-      width: 8px; height: 8px; border-radius: 50%;
-      margin-left: 8px;
-      background: var(--muted); transition: background 0.3s;
+    .sev-badge {
+      display: inline-flex;
+      align-items: center;
+      padding: 1px 7px;
+      border-radius: 6px;
+      font-size: 9.5px;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+      flex-shrink: 0;
     }
-    .conn-dot.connected { background: var(--green); box-shadow: 0 0 8px var(--green); }
-    .conn-dot.connecting { background: var(--yellow); animation: pulse 1s infinite; }
-    .conn-dot.error { background: var(--red); }
 
-    /* ── Scrollbar global ────────────────────────────────────────────── */
-    ::-webkit-scrollbar { width: 4px; height: 4px; }
-    ::-webkit-scrollbar-track { background: transparent; }
-    ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+    .sev-critical {
+      background: rgba(255, 79, 107, 0.2);
+      color: #ff7090;
+    }
+
+    .sev-high {
+      background: rgba(249, 115, 22, 0.2);
+      color: #fb923c;
+    }
+
+    .sev-medium {
+      background: rgba(251, 191, 36, 0.2);
+      color: #fbbf24;
+    }
+
+    .sev-low {
+      background: rgba(79, 255, 203, 0.15);
+      color: var(--teal);
+    }
+
+    .bug-step {
+      font-size: 9.5px;
+      color: var(--dim);
+      font-family: 'JetBrains Mono', monospace;
+    }
+
+    .bug-desc {
+      color: var(--text);
+      line-height: 1.45;
+      font-size: 11px;
+    }
+
+    .empty-state {
+      color: var(--dim);
+      font-size: 12px;
+      text-align: center;
+      padding: 24px 16px;
+    }
+
+    .empty-state-icon {
+      font-size: 26px;
+      margin-bottom: 6px;
+    }
+
+    /* ══════════════════════════════════════════
+       TOAST NOTIFICATIONS
+    ══════════════════════════════════════════ */
+    #toastContainer {
+      position: fixed;
+      bottom: 20px;
+      right: 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      z-index: 1000;
+    }
+
+    .toast {
+      display: flex;
+      align-items: center;
+      gap: 9px;
+      padding: 10px 16px;
+      background: rgba(15, 20, 40, 0.95);
+      border: 1px solid var(--border-2);
+      border-radius: var(--radius);
+      font-size: 12px;
+      backdrop-filter: blur(16px);
+      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+      animation: toastIn 0.3s ease;
+      max-width: 320px;
+    }
+
+    @keyframes toastIn {
+      from {
+        opacity: 0;
+        transform: translateY(10px) scale(0.96)
+      }
+
+      to {
+        opacity: 1;
+        transform: none
+      }
+    }
+
+    .toast-out {
+      animation: toastOut 0.25s ease forwards;
+    }
+
+    @keyframes toastOut {
+      to {
+        opacity: 0;
+        transform: translateY(6px) scale(0.97)
+      }
+    }
+
+    .toast-success {
+      border-color: rgba(79, 255, 203, 0.3);
+    }
+
+    .toast-error {
+      border-color: rgba(255, 79, 107, 0.3);
+    }
+
+    .toast-info {
+      border-color: rgba(124, 92, 252, 0.3);
+    }
+
+    /* ══════════════════════════════════════════
+       SCROLLBARS
+    ══════════════════════════════════════════ */
+    ::-webkit-scrollbar {
+      width: 4px;
+    }
+
+    ::-webkit-scrollbar-track {
+      background: transparent;
+    }
+
+    ::-webkit-scrollbar-thumb {
+      background: rgba(255, 255, 255, 0.08);
+      border-radius: 4px;
+    }
+
+    ::-webkit-scrollbar-thumb:hover {
+      background: rgba(255, 255, 255, 0.15);
+    }
   </style>
 </head>
+
 <body>
 
-<!-- ── Header ──────────────────────────────────────────────────────────── -->
-<header class="header">
-  <div class="logo">🎯</div>
-  <div>
-    <div class="header-title">Visual QA Sniper</div>
-    <div class="header-sub">Autonomous UI Testing · Powered by Gemini Vision</div>
-  </div>
-  <span id="statusBadge" class="badge badge-idle">Idle</span>
-  <div id="connDot" class="conn-dot" title="WebSocket connection"></div>
-</header>
+  <!-- ── Header ── -->
+  <header>
+    <div class="brand">
+      <div class="brand-icon">🎯</div>
+      <div>
+        <div class="brand-name">Visual QA Sniper</div>
+        <div class="brand-sub">Autonomous UI Testing · Powered by Puter AI</div>
+      </div>
+    </div>
 
-<main>
+    <div class="header-center" id="headerCenter" style="display:none">
+      <span>🔍</span>
+      <span id="headerUrl" style="max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;"></span>
+    </div>
 
-  <!-- ── Left Panel ──────────────────────────────────────────────────── -->
-  <aside class="panel-left">
+    <div class="header-right">
+      <span id="statusBadge" class="idle">IDLE</span>
+      <div class="ws-indicator" title="WebSocket connection">
+        <div class="ws-dot off" id="wsDot"></div>
+        <span id="wsLabel">WS</span>
+      </div>
+    </div>
+  </header>
 
-    <!-- Control Form -->
-    <div class="panel-section">
-      <div class="section-label">Test Target</div>
-      <div class="field">
+  <!-- ── Main ── -->
+  <main>
+
+    <!-- LEFT PANEL -->
+    <div class="left-panel">
+
+      <!-- Test Target -->
+      <div class="panel-section">
+        <div class="section-label">Test Target</div>
         <label for="urlInput">Target URL</label>
-        <input id="urlInput" type="url" placeholder="https://example.com" autocomplete="off" />
-      </div>
-      <div class="field">
+        <input id="urlInput" type="url" value="https://example.com" placeholder="https://your-app.com"
+          autocomplete="off" />
+
         <label for="goalInput">Testing Goal</label>
-        <textarea id="goalInput" placeholder="e.g. Try to complete checkout. Find broken links. Explore the navigation and report visual bugs."></textarea>
+        <textarea id="goalInput"
+          placeholder="e.g. Navigate all pages, click links, find visual bugs">Explore the page, click any links, and report all visual bugs found.</textarea>
+
+        <div class="section-label" style="margin-top:10px;">AI Vision Model</div>
+        <div class="model-chips" id="modelChips">
+          <button class="chip active" data-model="meta-llama/llama-4-maverick" onclick="selectModel(this)">Llama 4
+            Maverick</button>
+          <button class="chip" data-model="meta-llama/llama-4-scout" onclick="selectModel(this)">Llama 4 Scout</button>
+          <button class="chip" data-model="meta-llama/llama-3.2-11b-vision-instruct" onclick="selectModel(this)">Llama
+            3.2 11B</button>
+          <button class="chip" data-model="gemini-2.0-flash" onclick="selectModel(this)">Gemini Flash</button>
+        </div>
+
+        <div class="btn-row">
+          <button class="btn btn-start" id="startBtn" onclick="startTest()">▶&ensp;Start Test</button>
+          <button class="btn btn-stop" id="stopBtn" onclick="stopTest()">■&ensp;Stop</button>
+          <button class="btn-export" id="exportBtn" onclick="exportReport()" title="Export bug report as JSON">⤓
+            Export</button>
+        </div>
       </div>
-      <div class="btn-row">
-        <button id="startBtn" class="btn btn-primary" onclick="startTest()">
-          <span>▶</span> Start Test
-        </button>
-        <button id="stopBtn" class="btn btn-stop" onclick="stopTest()" disabled>
-          <span>■</span> Stop
-        </button>
-      </div>
-    </div>
 
-    <!-- Stats -->
-    <div class="panel-section">
-      <div class="section-label">Session Stats</div>
-      <div class="stats">
-        <div class="stat-card"><div id="statSteps" class="stat-val val-steps">0</div><div class="stat-lbl">Steps</div></div>
-        <div class="stat-card"><div id="statBugs"  class="stat-val val-bugs">0</div><div class="stat-lbl">Bugs</div></div>
-        <div class="stat-card"><div id="statTime"  class="stat-val val-time">0s</div><div class="stat-lbl">Elapsed</div></div>
-      </div>
-    </div>
-
-    <!-- Summary -->
-    <div id="summaryBanner" class="summary-banner"></div>
-
-    <!-- Action Log -->
-    <div class="panel-section" style="padding-bottom:10px">
-      <div class="section-label">Agent Actions</div>
-    </div>
-    <div class="log-wrap" id="logWrap">
-      <div class="log-empty">⚡ Enter a URL and goal to start testing</div>
-    </div>
-
-  </aside>
-
-  <!-- ── Right Panel ─────────────────────────────────────────────────── -->
-  <section class="panel-right">
-
-    <!-- Screen Feed -->
-    <div class="screen-wrap">
-      <div id="screenFrame" class="screen-frame">
-        <div class="screen-chrome">
-          <div class="chrome-dots">
-            <div class="chrome-dot dot-r"></div>
-            <div class="chrome-dot dot-y"></div>
-            <div class="chrome-dot dot-g"></div>
+      <!-- Stats -->
+      <div class="panel-section">
+        <div class="section-label">Session Stats</div>
+        <div class="stats-row">
+          <div class="stat-card" id="statSteps">
+            <div class="stat-value" id="stepsVal">0</div>
+            <div class="stat-label">Steps</div>
           </div>
-          <div id="chromeUrl" class="chrome-url">about:blank</div>
+          <div class="stat-card" id="statBugs">
+            <div class="stat-value" id="bugsVal">0</div>
+            <div class="stat-label">Findings</div>
+          </div>
+          <div class="stat-card" id="statElapsed">
+            <div class="stat-value" id="elapsedVal">0s</div>
+            <div class="stat-label">Elapsed</div>
+          </div>
         </div>
-        <div id="screenContent" class="screen-placeholder">
-          <div class="icon">🖥️</div>
-          <p>Browser feed will appear here</p>
+      </div>
+
+      <!-- Progress bar -->
+      <div class="progress-wrap">
+        <div class="progress-label">
+          <span>Step progress</span>
+          <span id="progressLabel">0 / 30</span>
+        </div>
+        <div class="progress-track">
+          <div class="progress-fill" id="progressFill"></div>
         </div>
       </div>
-      <div id="scanLine" class="scan-line"></div>
-    </div>
 
-    <!-- Bug Panel -->
-    <div class="bugs-panel">
-      <div class="bugs-header">
-        <span>🐛</span>
-        <h3>Visual Bugs Found</h3>
-        <span id="bugCount" class="bug-count">0</span>
+      <!-- Agent Actions Log -->
+      <div class="log-header">
+        <div class="section-label" style="margin:0;flex:1">Agent Actions</div>
+        <button class="log-clear-btn" onclick="clearLog()">Clear</button>
       </div>
-      <div id="bugsList" class="bugs-list">
-        <div class="bugs-empty">✅ No bugs detected yet</div>
+      <div class="log-wrap" id="logWrap">
+        <div class="log-entry">
+          <span class="log-icon">⚡</span>
+          <span class="log-text log-thinking">Enter a URL and goal to start testing</span>
+        </div>
       </div>
-    </div>
 
-  </section>
-</main>
+    </div><!-- /left-panel -->
 
-<!-- Lightbox -->
-<div id="lightbox" class="lightbox" onclick="closeLightbox()">
-  <img id="lightboxImg" src="" alt="Bug screenshot" />
-</div>
+    <!-- RIGHT PANEL -->
+    <div class="right-panel">
 
-<script>
-  // ── WebSocket Manager ─────────────────────────────────────────────────
-  let ws = null;
-  let reconnectDelay = 1000;
-  let reconnectTimer = null;
-  let pingTimer = null;
-  let running = false;
-  let startTime = null;
-  let elapsedTimer = null;
-  let stepCount = 0;
-  let bugCount = 0;
-  let pendingStart = null; // stored {url, goal} for reconnect
+      <!-- Screenshot -->
+      <div class="screenshot-wrap">
+        <!-- Scanning ring -->
+        <div class="scan-ring" id="scanRing">
+          <svg width="36" height="36" viewBox="0 0 36 36" fill="none">
+            <circle cx="18" cy="18" r="15" stroke="rgba(124,92,252,0.15)" stroke-width="3" />
+            <path d="M18 3 A15 15 0 0 1 33 18" stroke="var(--purple)" stroke-width="3" stroke-linecap="round" />
+          </svg>
+        </div>
 
-  const WS_URL = `ws://${location.host}/ws/stream`;
+        <!-- Zoom controls -->
+        <div class="screenshot-controls">
+          <button class="sc-btn" onclick="zoomIn()" title="Zoom in">+</button>
+          <button class="sc-btn" onclick="zoomReset()" title="Reset zoom"
+            style="font-size:9px;letter-spacing:-0.5px;">1:1</button>
+          <button class="sc-btn" onclick="zoomOut()" title="Zoom out">−</button>
+        </div>
 
-  function connect() {
-    clearTimeout(reconnectTimer);
-    setConnState('connecting');
-    ws = new WebSocket(WS_URL);
+        <!-- Placeholder -->
+        <div class="screenshot-placeholder" id="placeholder">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1">
+            <rect x="2" y="3" width="20" height="14" rx="2.5" />
+            <path d="M8 21h8M12 17v4" />
+          </svg>
+          <p>Browser feed appears here</p>
+          <small>Start a test to see live screenshots</small>
+        </div>
 
-    ws.onopen = () => {
-      setConnState('connected');
-      reconnectDelay = 1000;
-      startPing();
-      if (pendingStart) doStart(pendingStart);
-    };
+        <img id="screenshotImg" style="display:none" alt="Live browser screenshot" />
+        <div class="url-bar" id="urlBar"></div>
+      </div>
 
-    ws.onmessage = (e) => handleMessage(JSON.parse(e.data));
+      <!-- Bug Panel -->
+      <div class="bug-panel">
+        <div class="bug-header">
+          <span style="font-size:15px;">🔍</span>
+          <span class="bug-header-title">QA Findings</span>
+          <span style="font-size:10px;color:var(--muted);">bugs · imperfections · contrast · spacing</span>
+          <span class="bug-badge" id="bugCount">0</span>
+          <span id="scanStatus">⚡ Waiting…</span>
+        </div>
+        <div class="bugs-list" id="bugsList">
+          <div class="empty-state">
+            <div class="empty-state-icon">🔍</div>
+            No findings yet
+          </div>
+        </div>
+      </div>
 
-    ws.onclose = () => {
-      setConnState('error');
-      stopPing();
-      if (running) {
-        // Exponential backoff reconnect
-        reconnectTimer = setTimeout(() => {
-          reconnectDelay = Math.min(reconnectDelay * 2, 16000);
-          connect();
-        }, reconnectDelay);
+    </div><!-- /right-panel -->
+
+  </main>
+
+  <!-- Toast container -->
+  <div id="toastContainer"></div>
+
+  <script>
+    // ══════════════════════════════════════════════
+    // State
+    // ══════════════════════════════════════════════
+    let ws = null;
+    let pingInterval = null;
+    let running = false;
+    let step = 0;
+    let bugCount = 0;
+    let startTime = null;
+    let timerInterval = null;
+    let currentScreenshotB64 = null;
+    let selectedModel = 'meta-llama/llama-4-maverick';
+    let zoomLevel = 1;
+    let allBugs = [];
+    const MAX_STEPS = 30;
+
+    // ══════════════════════════════════════════════
+    // Model selection
+    // ══════════════════════════════════════════════
+    function selectModel(btn) {
+      document.querySelectorAll('.chip').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      selectedModel = btn.dataset.model;
+    }
+
+    // ══════════════════════════════════════════════
+    // Zoom controls
+    // ══════════════════════════════════════════════
+    function zoomIn() { zoomLevel = Math.min(zoomLevel + 0.2, 3); applyZoom(); }
+    function zoomOut() { zoomLevel = Math.max(zoomLevel - 0.2, 0.3); applyZoom(); }
+    function zoomReset() { zoomLevel = 1; applyZoom(); }
+    function applyZoom() {
+      const img = document.getElementById('screenshotImg');
+      img.style.transform = `scale(${zoomLevel})`;
+      img.style.transformOrigin = 'center center';
+    }
+
+    // ══════════════════════════════════════════════
+    // Export report
+    // ══════════════════════════════════════════════
+    function exportReport() {
+      const url = document.getElementById('urlInput').value;
+      const report = {
+        url,
+        model: selectedModel,
+        steps: step,
+        elapsed: document.getElementById('elapsedVal').textContent,
+        bugsFound: allBugs.length,
+        bugs: allBugs,
+        exportedAt: new Date().toISOString(),
+      };
+      const blob = new Blob([JSON.stringify(report, null, 2)], { type: 'application/json' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = `qa-report-${Date.now()}.json`;
+      a.click();
+      showToast('📥 Bug report exported', 'success');
+    }
+
+    // ══════════════════════════════════════════════
+    // Toast notifications
+    // ══════════════════════════════════════════════
+    function showToast(message, type = 'info') {
+      const container = document.getElementById('toastContainer');
+      const toast = document.createElement('div');
+      toast.className = `toast toast-${type}`;
+      const icons = { success: '✅', error: '❌', info: 'ℹ️' };
+      toast.innerHTML = `<span>${icons[type] || '💬'}</span><span>${escHtml(message)}</span>`;
+      container.appendChild(toast);
+      setTimeout(() => {
+        toast.classList.add('toast-out');
+        setTimeout(() => toast.remove(), 300);
+      }, 3500);
+    }
+
+    // ══════════════════════════════════════════════
+    // Log helpers
+    // ══════════════════════════════════════════════
+    function clearLog() {
+      document.getElementById('logWrap').innerHTML = '';
+    }
+
+    function addLog(icon, text, stepN, cls) {
+      const wrap = document.getElementById('logWrap');
+      const div = document.createElement('div');
+      div.className = `log-entry ${cls || ''}`;
+      const now = new Date();
+      const ts = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}:${String(now.getSeconds()).padStart(2, '0')}`;
+      div.innerHTML = `
+        <span class="log-icon">${icon}</span>
+        <span class="log-meta">#${String(stepN).padStart(2, '0')}</span>
+        <span class="log-time">${ts}</span>
+        <span class="log-text">${escHtml(text)}</span>`;
+      wrap.appendChild(div);
+      wrap.scrollTop = wrap.scrollHeight;
+    }
+
+    function addLogRaw(stepN, rawText) {
+      if (!rawText) return;
+      const wrap = document.getElementById('logWrap');
+      const preview = rawText.length > 110 ? rawText.slice(0, 110) + '…' : rawText;
+      const div = document.createElement('div');
+      div.className = 'log-entry log-response';
+      div.title = 'Click to expand full response';
+      div.innerHTML = `<span class="log-icon">💬</span><span class="log-meta">#${String(stepN).padStart(2, '0')}</span><span class="log-text raw-preview">${escHtml(preview)}</span>`;
+      div.addEventListener('click', () => {
+        const s = div.querySelector('.raw-preview');
+        if (s.dataset.expanded) { s.textContent = preview; delete s.dataset.expanded; }
+        else { s.textContent = rawText; s.dataset.expanded = '1'; }
+      });
+      wrap.appendChild(div);
+      wrap.scrollTop = wrap.scrollHeight;
+    }
+
+    // ══════════════════════════════════════════════
+    // WebSocket
+    // ══════════════════════════════════════════════
+    function connectWS() {
+      const protocol = location.protocol === 'https:' ? 'wss' : 'ws';
+      ws = new WebSocket(`${protocol}://${location.host}/ws/stream`);
+
+      ws.onopen = () => {
+        document.getElementById('wsDot').classList.remove('off');
+        document.getElementById('wsLabel').textContent = 'Connected';
+        pingInterval = setInterval(() => ws && ws.readyState === 1 && ws.send(JSON.stringify({ type: 'ping' })), 20000);
+      };
+
+      ws.onclose = () => {
+        document.getElementById('wsDot').classList.add('off');
+        document.getElementById('wsLabel').textContent = 'WS';
+        clearInterval(pingInterval);
+        setTimeout(connectWS, 2000);
+      };
+
+      ws.onmessage = (e) => {
+        const msg = JSON.parse(e.data);
+        handleServerMessage(msg);
+      };
+    }
+
+    function wsSend(obj) {
+      if (ws && ws.readyState === 1) ws.send(JSON.stringify(obj));
+    }
+
+    // ══════════════════════════════════════════════
+    // Server message handler
+    // ══════════════════════════════════════════════
+    function handleServerMessage(msg) {
+      switch (msg.type) {
+        case 'session_start':
+          addLog('🚀', `Session ${msg.session_id?.slice(0, 8)} started → ${msg.url}`, 0, '');
+          const hc = document.getElementById('headerCenter');
+          document.getElementById('headerUrl').textContent = msg.url;
+          hc.style.display = 'flex';
+          break;
+
+        case 'screenshot':
+          currentScreenshotB64 = msg.data;
+          showScreenshot(msg.data, msg.url);
+          setScanRing(false);
+          if (running && step < MAX_STEPS) {
+            setTimeout(() => runAIStep(), 300);
+          }
+          break;
+
+        case 'action_done':
+          setScanRing(false);
+          if (!msg.screenshot && running && step < MAX_STEPS) {
+            setTimeout(() => runAIStep(), 100);
+          }
+          break;
+
+        case 'bug':
+          bugCount++;
+          allBugs.push({ ...msg, ts: Date.now() });
+          document.getElementById('bugsVal').textContent = bugCount;
+          document.getElementById('bugCount').textContent = bugCount;
+          addBugCard(msg);
+          addLog('🐛', `[${(msg.severity || '?').toUpperCase()}] ${msg.description}`, step, 'log-bug');
+          document.getElementById('scanStatus').textContent = `🔍 ${bugCount} finding${bugCount !== 1 ? 's' : ''}`;
+          showToast(`🐛 Bug found: ${msg.description.slice(0, 60)}…`, 'error');
+          break;
+
+        case 'complete':
+          setStatus('complete', 'COMPLETE');
+          running = false;
+          clearInterval(timerInterval);
+          setScanRing(false);
+          addLog('✅', msg.summary, step, 'log-complete');
+          showToast(`✅ Test complete — ${bugCount} finding${bugCount !== 1 ? 's' : ''} logged`, 'success');
+          break;
+
+        case 'stopped':
+          setStatus('idle', 'IDLE');
+          running = false;
+          clearInterval(timerInterval);
+          setScanRing(false);
+          break;
+
+        case 'error':
+          addLog('❌', msg.message, step, '');
+          if (msg.message && msg.message.includes('No browser session')) {
+            running = false;
+            setScanRing(false);
+            setStatus('error', 'ERROR');
+            clearInterval(timerInterval);
+            addLog('⚠️', 'Browser session lost. Click Start Test to retry.', step, '');
+            showToast('⚠️ Browser session lost', 'error');
+          } else if (running && step < MAX_STEPS) {
+            setTimeout(() => runAIStep(), 2000);
+          }
+          break;
       }
-    };
-
-    ws.onerror = () => setConnState('error');
-  }
-
-  function startPing() {
-    pingTimer = setInterval(() => {
-      if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({type:'ping'}));
-    }, 20000);
-  }
-  function stopPing() { clearInterval(pingTimer); }
-
-  function setConnState(state) {
-    const dot = document.getElementById('connDot');
-    dot.className = 'conn-dot ' + state;
-  }
-
-  // ── Message Handler ───────────────────────────────────────────────────
-  function handleMessage(msg) {
-    switch (msg.type) {
-      case 'pong': break;
-
-      case 'session_start':
-        logAction('info', '🚀', 0, `Session ${msg.session_id} started → ${msg.url}`);
-        break;
-
-      case 'screenshot':
-        updateScreen(msg.data, msg.url);
-        break;
-
-      case 'action':
-        stepCount = msg.step;
-        document.getElementById('statSteps').textContent = stepCount;
-        const icon = actionIcon(msg.tool);
-        const cls  = msg.tool === 'flag_visual_bug' ? 'log-item-bug'
-                   : msg.tool === 'mark_test_complete' ? 'log-item-done' : 'log-item-normal';
-        logAction(cls, icon, msg.step, msg.description);
-        break;
-
-      case 'bug':
-        bugCount++;
-        document.getElementById('statBugs').textContent = bugCount;
-        document.getElementById('bugCount').textContent = bugCount;
-        addBugCard(msg);
-        break;
-
-      case 'complete':
-        setRunning(false);
-        setBadge('done');
-        document.getElementById('scanLine').classList.remove('visible');
-        document.getElementById('screenFrame').classList.remove('active');
-        showSummary(`✅ ${msg.summary} · ${msg.bugs_found} bug(s) found · Session: ${msg.session_id}`);
-        logAction('log-item-done', '✅', stepCount, 'Test complete: ' + msg.summary);
-        break;
-
-      case 'stopped':
-        setRunning(false);
-        setBadge('idle');
-        document.getElementById('scanLine').classList.remove('visible');
-        break;
-
-      case 'error':
-        logAction('log-item-bug', '❌', stepCount, 'Error: ' + msg.message);
-        setBadge('err');
-        setRunning(false);
-        break;
     }
-  }
 
-  // ── Control ───────────────────────────────────────────────────────────
-  function startTest() {
-    const url = document.getElementById('urlInput').value.trim();
-    const goal = document.getElementById('goalInput').value.trim() ||
-                 'Explore the UI and report any visual bugs you find.';
-    if (!url) { alert('Please enter a target URL.'); return; }
+    // ══════════════════════════════════════════════
+    // Puter.js AI loop
+    // ══════════════════════════════════════════════
 
-    // Reset UI
-    stepCount = 0; bugCount = 0;
-    document.getElementById('statSteps').textContent = '0';
-    document.getElementById('statBugs').textContent = '0';
-    document.getElementById('bugCount').textContent = '0';
-    document.getElementById('logWrap').innerHTML = '';
-    document.getElementById('bugsList').innerHTML = '<div class="bugs-empty">⚡ Scanning…</div>';
-    document.getElementById('summaryBanner').classList.remove('visible');
+    const SYSTEM_PROMPT = `You are Visual QA Sniper, an elite web QA engineer doing a THOROUGH inspection.
+Your job is to find and report EVERY visual and UX issue — even minor ones.
 
-    setRunning(true);
-    setBadge('run');
-    document.getElementById('scanLine').classList.add('visible');
-    document.getElementById('screenFrame').classList.add('active');
+VIEWPORT: 1280x720 pixels. Coordinates: (0,0)=top-left, (1280,720)=bottom-right.
 
-    startTime = Date.now();
-    clearInterval(elapsedTimer);
-    elapsedTimer = setInterval(() => {
-      const s = Math.round((Date.now() - startTime) / 1000);
-      document.getElementById('statTime').textContent = s + 's';
-    }, 1000);
+RESPOND WITH ONLY A JSON OBJECT — no markdown, no explanation:
+{"action": "<name>", "args": {<args>}}
 
-    const payload = {type: 'start', url, goal};
-    if (ws && ws.readyState === WebSocket.OPEN) {
-      doStart(payload);
-    } else {
-      pendingStart = payload;
-      connect();
+Available actions:
+- navigate_to_url    {"url": "https://..."}
+- click_element      {"x": 320, "y": 180}
+- type_into_field    {"text": "hello"}
+- press_keyboard_key {"key": "Enter"}
+- scroll_page        {"direction": "down", "amount": 400}
+- hover_over_element {"x": 320, "y": 180}
+- go_back            {}
+- flag_visual_bug    {"description": "Detailed description", "severity": "critical|high|medium|low", "x": 640, "y": 360}
+- mark_test_complete {"summary": "Full report with all findings", "bugs_found": N}
+
+INSPECTION CHECKLIST — work through this systematically:
+1. Scroll down to see ALL content (do this early!)
+2. Check navigation: Are all links visible? Correct spacing? Mobile-friendly?
+3. Check hero/banner: Text readable? Images loading? Contrast sufficient?
+4. Check buttons/CTAs: Visible? Properly styled? Consistent?
+5. Check typography: Font sizes readable? Line heights correct? No overflow?
+6. Check images: Loading correctly? Properly sized? Alt text visible if broken?
+7. Check footer: Complete? Links work? Copyright present?
+8. Check spacing: Consistent margins/padding? No overlapping elements?
+9. Click major navigation links and check each page
+10. Check color contrast — WCAG AA requires 4.5:1 ratio for text
+
+BUGS TO FLAG (with severity):
+- CRITICAL: Page won't load, completely broken layout, missing critical content
+- HIGH: Broken images, very poor contrast, nav links not working, text overflow
+- MEDIUM: Inconsistent spacing, suboptimal contrast, minor alignment issues
+- LOW: Minor cosmetic issues, small inconsistencies, improvement suggestions
+
+RULES:
+- You MUST scroll down at least 2-3 times before calling mark_test_complete
+- You MUST flag at least 1 finding (bug OR positive note as low severity) before completing
+- Be specific in descriptions: "Button text 'Contact' has white text on light gray background, contrast ratio ~1.8:1"
+- Include x,y coordinates where the bug is visible
+- mark_test_complete summary MUST list ALL findings with their severity levels`;
+
+    async function runAIStep() {
+      if (!running || step >= MAX_STEPS || !currentScreenshotB64) return;
+
+      step++;
+      document.getElementById('stepsVal').textContent = step;
+      updateProgress();
+      setScanRing(true);
+      addLog('🧠', `Analyzing screenshot (step ${step})…`, step, 'log-thinking');
+
+      const url = document.getElementById('urlInput').value;
+      const goal = document.getElementById('goalInput').value;
+
+      const userPrompt = `Testing goal: ${goal}
+Current URL: ${url}
+Step ${step}/${MAX_STEPS}. Analyze the screenshot and respond with the next action JSON.`;
+
+      try {
+        const imageDataUrl = `data:image/jpeg;base64,${currentScreenshotB64}`;
+
+        const response = await puter.ai.chat(
+          [
+            { role: 'system', content: SYSTEM_PROMPT },
+            {
+              role: 'user', content: [
+                { type: 'text', text: userPrompt },
+                { type: 'image_url', image_url: { url: imageDataUrl } }
+              ]
+            }
+          ],
+          { model: selectedModel }
+        );
+
+        const text = (typeof response === 'string' ? response :
+          response?.message?.content || response?.text || JSON.stringify(response) || '').trim();
+
+        addLogRaw(step, text);
+
+        const parsed = parseAction(text);
+        if (!parsed) {
+          addLog('🤔', `Thinking: ${text.slice(0, 80)}`, step, 'log-thinking');
+          if (running) setTimeout(runAIStep, 500);
+          return;
+        }
+
+        const { action, args } = parsed;
+        const desc = describeAction(action, args);
+        const logCls = action === 'flag_visual_bug' ? 'log-bug'
+          : action === 'mark_test_complete' ? 'log-complete'
+            : action === 'navigate_to_url' ? 'log-navigate'
+              : '';
+        addLog(actionIcon(action), desc, step, logCls);
+
+        wsSend({ type: 'execute', action, args, step });
+
+      } catch (err) {
+        setScanRing(false);
+        addLog('❌', `AI error: ${err.message || err}`, step, '');
+        if (running && step < MAX_STEPS) setTimeout(runAIStep, 3000);
+      }
     }
-  }
 
-  function doStart(payload) {
-    pendingStart = null;
-    ws.send(JSON.stringify(payload));
-  }
+    const ACTION_NAMES = ['navigate_to_url', 'click_element', 'type_into_field',
+      'press_keyboard_key', 'scroll_page', 'hover_over_element', 'go_back',
+      'flag_visual_bug', 'mark_test_complete'];
 
-  function stopTest() {
-    if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({type:'stop'}));
-    setRunning(false);
-    clearInterval(elapsedTimer);
-    document.getElementById('scanLine').classList.remove('visible');
-    document.getElementById('screenFrame').classList.remove('active');
-    setBadge('idle');
-  }
+    function parseAction(text) {
+      text = text.replace(/^```(?:json)?\n?|```$/gm, '').trim();
+      try {
+        const data = JSON.parse(text);
+        const action = data.action || data.tool || data.name;
+        if (action && ACTION_NAMES.includes(action)) {
+          return { action, args: data.args || data.arguments || data.parameters || {} };
+        }
+        for (const name of ACTION_NAMES) {
+          if (data[name] !== undefined) return { action: name, args: data[name] || {} };
+        }
+      } catch (_) { }
+      for (const name of ACTION_NAMES) {
+        const m = text.match(new RegExp('"' + name + '"\\s*:\\s*(\\{[^}]*\\})'));
+        if (m) { try { return { action: name, args: JSON.parse(m[1]) }; } catch (_) { } }
+      }
+      const m = text.match(/\{[\s\S]*?"action"[\s\S]*?\}/);
+      if (m) {
+        try {
+          const data = JSON.parse(m[0]);
+          if (ACTION_NAMES.includes(data.action)) return { action: data.action, args: data.args || {} };
+        } catch (_) { }
+      }
+      return null;
+    }
 
-  function setRunning(val) {
-    running = val;
-    document.getElementById('startBtn').disabled = val;
-    document.getElementById('stopBtn').disabled  = !val;
-    if (!val) { clearInterval(elapsedTimer); }
-  }
+    // ══════════════════════════════════════════════
+    // Controls
+    // ══════════════════════════════════════════════
+    function startTest() {
+      const url = document.getElementById('urlInput').value.trim();
+      const goal = document.getElementById('goalInput').value.trim();
+      if (!url) { showToast('Please enter a target URL', 'error'); return; }
 
-  // ── UI Helpers ────────────────────────────────────────────────────────
-  function updateScreen(b64, url) {
-    const content = document.getElementById('screenContent');
-    const chrome  = document.getElementById('chromeUrl');
-    chrome.textContent = url || 'loading…';
-    content.outerHTML = `<img id="screenContent" class="screen-img" src="data:image/jpeg;base64,${b64}" alt="Browser snapshot" />`;
-  }
+      step = 0; bugCount = 0; currentScreenshotB64 = null; allBugs = [];
+      document.getElementById('stepsVal').textContent = '0';
+      document.getElementById('bugsVal').textContent = '0';
+      document.getElementById('bugCount').textContent = '0';
+      document.getElementById('elapsedVal').textContent = '0s';
+      document.getElementById('logWrap').innerHTML = '';
+      document.getElementById('bugsList').innerHTML = '<div class="empty-state"><div class="empty-state-icon">☑️</div>No bugs detected yet</div>';
+      document.getElementById('scanStatus').textContent = '⚡ Scanning…';
+      document.getElementById('headerCenter').style.display = 'none';
+      updateProgress();
 
-  function logAction(cls, icon, step, text) {
-    const wrap = document.getElementById('logWrap');
-    // Remove empty placeholder
-    const empty = wrap.querySelector('.log-empty');
-    if (empty) empty.remove();
-    const el = document.createElement('div');
-    el.className = `log-item ${cls}`;
-    el.innerHTML = `
-      <span class="log-icon">${icon}</span>
-      <span class="log-step">#${String(step).padStart(2,'0')}</span>
-      <span class="log-text">${escHtml(text)}</span>
-    `;
-    wrap.appendChild(el);
-    wrap.scrollTop = wrap.scrollHeight;
-  }
+      running = true;
+      setStatus('running', 'RUNNING');
 
-  function addBugCard(bug) {
-    const list = document.getElementById('bugsList');
-    const empty = list.querySelector('.bugs-empty');
-    if (empty) empty.remove();
-    const sev = (bug.severity || 'medium').toLowerCase();
-    const card = document.createElement('div');
-    card.className = 'bug-card';
-    card.innerHTML = `
-      <span class="bug-sev sev-${sev}">${sev}</span>
-      <p class="bug-desc">${escHtml(bug.description)}</p>
-      <p class="bug-step">Step #${bug.step}${bug.x > 0 ? ` · (${bug.x}, ${bug.y})` : ''}</p>
-      ${bug.screenshot
-        ? `<img class="bug-thumb" src="data:image/jpeg;base64,${bug.screenshot}" alt="Bug screenshot" onclick="openLightbox(this.src)" />`
-        : ''}
-    `;
-    list.appendChild(card);
-    card.scrollIntoView({behavior:'smooth', inline:'nearest'});
-  }
+      startTime = Date.now();
+      clearInterval(timerInterval);
+      timerInterval = setInterval(() => {
+        const s = Math.floor((Date.now() - startTime) / 1000);
+        document.getElementById('elapsedVal').textContent = s >= 60 ? `${Math.floor(s / 60)}m${s % 60}s` : `${s}s`;
+      }, 1000);
 
-  function showSummary(text) {
-    const el = document.getElementById('summaryBanner');
-    el.textContent = text;
-    el.classList.add('visible');
-  }
+      showToast(`🚀 Starting test on ${url}`, 'info');
+      wsSend({ type: 'start', url, goal });
+    }
 
-  function setBadge(state) {
-    const b = document.getElementById('statusBadge');
-    const map = {
-      idle: ['badge-idle', 'Idle'],
-      run:  ['badge-run',  'Running'],
-      done: ['badge-done', 'Complete'],
-      err:  ['badge-err',  'Error'],
-    };
-    b.className = 'badge ' + (map[state]?.[0] || 'badge-idle');
-    b.textContent = map[state]?.[1] || 'Idle';
-  }
+    function stopTest() {
+      running = false;
+      wsSend({ type: 'stop' });
+      setStatus('idle', 'IDLE');
+      clearInterval(timerInterval);
+      setScanRing(false);
+      showToast('⏹ Test stopped', 'info');
+    }
 
-  function actionIcon(tool) {
-    const icons = {
-      navigate_to_url:   '🌐',
-      click_element:     '👆',
-      type_into_field:   '⌨️',
-      press_keyboard_key:'↩️',
-      scroll_page:       '📜',
-      hover_over_element:'🖱️',
-      go_back:           '⬅️',
-      flag_visual_bug:   '🐛',
-      mark_test_complete:'✅',
-      thinking:          '🧠',
-    };
-    return icons[tool] || '⚡';
-  }
+    // ══════════════════════════════════════════════
+    // UI helpers
+    // ══════════════════════════════════════════════
+    function setStatus(cls, text) {
+      const el = document.getElementById('statusBadge');
+      el.className = cls;
+      el.textContent = text;
+    }
 
-  function escHtml(s) {
-    return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-  }
+    function setScanRing(active) {
+      document.getElementById('scanRing').classList.toggle('active', active);
+    }
 
-  function openLightbox(src) {
-    document.getElementById('lightboxImg').src = src;
-    document.getElementById('lightbox').classList.add('open');
-  }
-  function closeLightbox() {
-    document.getElementById('lightbox').classList.remove('open');
-  }
+    function updateProgress() {
+      const pct = Math.round((step / MAX_STEPS) * 100);
+      document.getElementById('progressFill').style.width = pct + '%';
+      document.getElementById('progressLabel').textContent = `${step} / ${MAX_STEPS}`;
+    }
 
-  // ── Boot ──────────────────────────────────────────────────────────────
-  connect();
-  // Allow Enter key in URL field to start
-  document.getElementById('urlInput').addEventListener('keydown', e => {
-    if (e.key === 'Enter') startTest();
-  });
-</script>
+    function showScreenshot(b64, url) {
+      const img = document.getElementById('screenshotImg');
+      const ph = document.getElementById('placeholder');
+      img.style.opacity = '0';
+      img.src = `data:image/jpeg;base64,${b64}`;
+      img.onload = () => { img.style.opacity = '1'; };
+      img.style.display = 'block';
+      ph.style.display = 'none';
+      const urlBar = document.getElementById('urlBar');
+      if (url) { urlBar.textContent = url; urlBar.style.display = 'block'; }
+    }
+
+    function addBugCard(bug) {
+      const list = document.getElementById('bugsList');
+      const emp = list.querySelector('.empty-state');
+      if (emp) emp.remove();
+      const sev = (bug.severity || 'medium').toLowerCase();
+      const div = document.createElement('div');
+      div.className = 'bug-card';
+      div.innerHTML = `
+        <div class="bug-card-top">
+          <span class="sev-badge sev-${sev}">${sev.toUpperCase()}</span>
+          <span class="bug-step">Step #${String(bug.step || 0).padStart(2, '0')}</span>
+        </div>
+        <div class="bug-desc">${escHtml(bug.description)}</div>`;
+      list.appendChild(div);
+      list.scrollTop = list.scrollHeight;
+    }
+
+    function actionIcon(a) {
+      return {
+        navigate_to_url: '🌐', click_element: '🖱️', type_into_field: '⌨️',
+        press_keyboard_key: '⌨️', scroll_page: '📜', hover_over_element: '👆',
+        go_back: '◀️', flag_visual_bug: '🐛', mark_test_complete: '✅',
+      }[a] || '⚡';
+    }
+
+    function describeAction(a, args) {
+      const m = {
+        navigate_to_url: `Navigating to ${args.url || ''}`,
+        click_element: `Clicking at (${args.x}, ${args.y})`,
+        type_into_field: `Typing: "${args.text || ''}"`,
+        press_keyboard_key: `Pressing ${args.key || 'Enter'}`,
+        scroll_page: `Scrolling ${args.direction || 'down'} ${args.amount || 300}px`,
+        hover_over_element: `Hovering at (${args.x}, ${args.y})`,
+        go_back: 'Going back',
+        flag_visual_bug: `🐛 [${(args.severity || '?').toUpperCase()}] ${args.description || ''}`,
+        mark_test_complete: `✅ ${args.summary || 'Test complete'}`,
+      };
+      return m[a] || a;
+    }
+
+    function escHtml(s) {
+      return String(s)
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+    }
+
+    // ══════════════════════════════════════════════
+    // Boot
+    // ══════════════════════════════════════════════
+    connectWS();
+  </script>
+
 </body>
+
 </html>
