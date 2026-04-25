@@ -764,7 +764,7 @@
       gap: 8px;
       border-bottom: 1px solid var(--border);
       flex-shrink: 0;
-      background: rgba(255, 79, 107, 0.03);
+      background: rgba(249, 115, 22, 0.03);
     }
 
     .bug-header-title {
@@ -1307,7 +1307,7 @@
           addBugCard(msg);
           addLog('🐛', `[${(msg.severity || '?').toUpperCase()}] ${msg.description}`, step, 'log-bug');
           document.getElementById('scanStatus').textContent = `🔍 ${bugCount} finding${bugCount !== 1 ? 's' : ''}`;
-          showToast(`🐛 Bug found: ${msg.description.slice(0, 60)}…`, 'error');
+          showToast(`🔍 Finding: ${msg.description.slice(0, 60)}…`, 'error');
           break;
 
         case 'complete':
@@ -1495,7 +1495,7 @@ Step ${step}/${MAX_STEPS}. Analyze the screenshot and respond with the next acti
       document.getElementById('bugCount').textContent = '0';
       document.getElementById('elapsedVal').textContent = '0s';
       document.getElementById('logWrap').innerHTML = '';
-      document.getElementById('bugsList').innerHTML = '<div class="empty-state"><div class="empty-state-icon">☑️</div>No bugs detected yet</div>';
+      document.getElementById('bugsList').innerHTML = '<div class="empty-state"><div class="empty-state-icon">🔍</div>No findings yet</div>';
       document.getElementById('scanStatus').textContent = '⚡ Scanning…';
       document.getElementById('headerCenter').style.display = 'none';
       updateProgress();
@@ -1588,7 +1588,7 @@ Step ${step}/${MAX_STEPS}. Analyze the screenshot and respond with the next acti
         scroll_page: `Scrolling ${args.direction || 'down'} ${args.amount || 300}px`,
         hover_over_element: `Hovering at (${args.x}, ${args.y})`,
         go_back: 'Going back',
-        flag_visual_bug: `🐛 [${(args.severity || '?').toUpperCase()}] ${args.description || ''}`,
+        flag_visual_bug: `🔍 [${(args.severity || '?').toUpperCase()}] ${args.description || ''}`,
         mark_test_complete: `✅ ${args.summary || 'Test complete'}`,
       };
       return m[a] || a;
